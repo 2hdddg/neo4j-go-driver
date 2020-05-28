@@ -33,7 +33,7 @@ func TestBolt3(ot *testing.T) {
 	keys := []interface{}{"f1", "f2"}
 	recsStrm := []packstream.Struct{
 		packstream.Struct{
-			Tag: msgV3Success,
+			Tag: msgSuccess,
 			Fields: []interface{}{
 				map[string]interface{}{
 					"fields":  keys,
@@ -42,19 +42,19 @@ func TestBolt3(ot *testing.T) {
 			},
 		},
 		packstream.Struct{
-			Tag:    msgV3Record,
+			Tag:    msgRecord,
 			Fields: []interface{}{[]interface{}{"1v1", "1v2"}},
 		},
 		packstream.Struct{
-			Tag:    msgV3Record,
+			Tag:    msgRecord,
 			Fields: []interface{}{[]interface{}{"2v1", "2v2"}},
 		},
 		packstream.Struct{
-			Tag:    msgV3Record,
+			Tag:    msgRecord,
 			Fields: []interface{}{[]interface{}{"3v1", "3v2"}},
 		},
 		packstream.Struct{
-			Tag:    msgV3Success,
+			Tag:    msgSuccess,
 			Fields: []interface{}{map[string]interface{}{"bookmark": "bm", "type": "r"}},
 		},
 	}
@@ -183,11 +183,11 @@ func TestBolt3(ot *testing.T) {
 			srv.waitForRun()
 			srv.waitForPullAll()
 			// Send response to run and first record as response to pull
-			srv.send(msgV3Success, map[string]interface{}{
+			srv.send(msgSuccess, map[string]interface{}{
 				"fields":  keys,
 				"t_first": int64(1),
 			})
-			srv.send(msgV3Record, []interface{}{"1v1", "1v2"})
+			srv.send(msgRecord, []interface{}{"1v1", "1v2"})
 			// Pretty nice towards bolt, a full message is written
 			srv.closeConnection()
 		})

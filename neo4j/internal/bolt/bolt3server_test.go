@@ -80,16 +80,16 @@ func (s *bolt3server) sendFailureMsg(code, msg string) {
 		"code":    code,
 		"message": msg,
 	}
-	s.send(msgV3Failure, f)
+	s.send(msgFailure, f)
 }
 
 func (s *bolt3server) sendIgnoredMsg() {
-	s.send(msgV3Ignored)
+	s.send(msgIgnored)
 }
 
 func (s *bolt3server) waitForHello() {
 	msg := s.receiveMsg()
-	s.assertStructType(msg, msgV3Hello)
+	s.assertStructType(msg, msgHello)
 	m := msg.Fields[0].(map[string]interface{})
 	// Hello should contain some musts
 	_, exists := m["scheme"]
@@ -114,32 +114,32 @@ func (s *bolt3server) receiveMsg() *packstream.Struct {
 
 func (s *bolt3server) waitForRun() {
 	msg := s.receiveMsg()
-	s.assertStructType(msg, msgV3Run)
+	s.assertStructType(msg, msgRun)
 }
 
 func (s *bolt3server) waitForReset() {
 	msg := s.receiveMsg()
-	s.assertStructType(msg, msgV3Reset)
+	s.assertStructType(msg, msgReset)
 }
 
 func (s *bolt3server) waitForTxBegin() {
 	msg := s.receiveMsg()
-	s.assertStructType(msg, msgV3Begin)
+	s.assertStructType(msg, msgBegin)
 }
 
 func (s *bolt3server) waitForTxCommit() {
 	msg := s.receiveMsg()
-	s.assertStructType(msg, msgV3Commit)
+	s.assertStructType(msg, msgCommit)
 }
 
 func (s *bolt3server) waitForTxRollback() {
 	msg := s.receiveMsg()
-	s.assertStructType(msg, msgV3Rollback)
+	s.assertStructType(msg, msgRollback)
 }
 
 func (s *bolt3server) waitForPullAll() {
 	msg := s.receiveMsg()
-	s.assertStructType(msg, msgV3PullAll)
+	s.assertStructType(msg, msgPullAll)
 }
 
 func (s *bolt3server) acceptVersion(ver byte) {
@@ -172,18 +172,18 @@ func (s *bolt3server) send(tag packstream.StructTag, field ...interface{}) {
 }
 
 func (s *bolt3server) sendSuccess(m map[string]interface{}) {
-	s.send(msgV3Success, m)
+	s.send(msgSuccess, m)
 }
 
 func (s *bolt3server) acceptHello() {
-	s.send(msgV3Success, map[string]interface{}{
+	s.send(msgSuccess, map[string]interface{}{
 		"connection_id": "cid",
 		"server":        "fake/3.5",
 	})
 }
 
 func (s *bolt3server) rejectHelloUnauthorized() {
-	s.send(msgV3Failure, map[string]interface{}{
+	s.send(msgFailure, map[string]interface{}{
 		"code":    "Neo.ClientError.Security.Unauthorized",
 		"message": "",
 	})
@@ -208,7 +208,7 @@ func (s *bolt3server) serveRun(stream []packstream.Struct) {
 
 func (s *bolt3server) serveRunTx(stream []packstream.Struct, commit bool) {
 	s.waitForTxBegin()
-	s.send(msgV3Success, map[string]interface{}{})
+	s.send(msgSuccess, map[string]interface{}{})
 	s.waitForRun()
 	s.waitForPullAll()
 	for _, x := range stream {
@@ -216,12 +216,12 @@ func (s *bolt3server) serveRunTx(stream []packstream.Struct, commit bool) {
 	}
 	if commit {
 		s.waitForTxCommit()
-		s.send(msgV3Success, map[string]interface{}{
+		s.send(msgSuccess, map[string]interface{}{
 			"bookmark": "abookmark",
 		})
 	} else {
 		s.waitForTxRollback()
-		s.send(msgV3Success, map[string]interface{}{})
+		s.send(msgSuccess, map[string]interface{}{})
 	}
 }
 
