@@ -43,7 +43,7 @@ func (e *CommitFailedDeadError) Error() string {
 type State struct {
 	LastErrWasRetryable     bool
 	LastErr                 error
-	stop                    bool
+	Stop                    bool
 	Errs                    []error
 	Causes                  []string
 	MaxTransactionRetryTime time.Duration
@@ -73,7 +73,7 @@ func (s *State) OnFailure(conn db.Connection, err error, isCommitting bool) {
 		s.start = s.Now()
 	}
 	if s.Now().Sub(s.start) > s.MaxTransactionRetryTime {
-		s.stop = true
+		s.Stop = true
 		s.cause = "Timeout"
 		return
 	}
@@ -91,7 +91,7 @@ func (s *State) OnFailure(conn db.Connection, err error, isCommitting bool) {
 	// Check if the connection died, if it died during commit it is not safe to retry.
 	if !conn.IsAlive() {
 		if isCommitting {
-			s.stop = true
+			s.Stop = true
 			// The error is most probably io.EOF so enrich the error
 			// to make this error more recognizable.
 			s.LastErr = &CommitFailedDeadError{inner: s.LastErr}
@@ -99,7 +99,7 @@ func (s *State) OnFailure(conn db.Connection, err error, isCommitting bool) {
 		}
 
 		s.deadErrors += 1
-		s.stop = s.deadErrors > s.MaxDeadConnections
+		s.Stop = s.deadErrors > s.MaxDeadConnections
 		s.LastErrWasRetryable = true
 		s.cause = "Connection lost"
 		s.skipSleep = true
@@ -122,12 +122,12 @@ func (s *State) OnFailure(conn db.Connection, err error, isCommitting bool) {
 		}
 	}
 
-	s.stop = true
+	s.Stop = true
 }
 
 func (s *State) Continue() bool {
 	// No error happened yet
-	if !s.stop && s.LastErr == nil {
+	if !s.Stop && s.LastErr == nil {
 		return true
 	}
 
@@ -138,7 +138,7 @@ func (s *State) Continue() bool {
 	}
 
 	// Retry after optional sleep
-	if !s.stop {
+	if !s.Stop {
 		if s.skipSleep {
 			s.Log.Debugf(s.LogName, s.LogId, "Retrying transaction (%s): %s", s.cause, s.LastErr)
 		} else {

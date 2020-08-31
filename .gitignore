@@ -25,3 +25,6 @@ vendor
 testkit-backend/testkit-backend
 test-stress/test-stress
 benchmark/main
+
+neo4j/cbindings/libneo4j.*
+neo4j/cbindings/test/main
