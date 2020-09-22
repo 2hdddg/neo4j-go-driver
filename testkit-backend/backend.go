@@ -188,6 +188,35 @@ func (b *backend) toRequest(s string) map[string]interface{} {
 	return req
 }
 
+func (b *backend) toTransactionConfigApply(data map[string]interface{}) func(*neo4j.TransactionConfig) {
+	txConfig := neo4j.TransactionConfig{}
+	// Optional transaction meta data
+	if data["txMeta"] != nil {
+		txConfig.Metadata = data["txMeta"].(map[string]interface{})
+	}
+	// Optional timeout in milliseconds
+	if data["timeout"] != nil {
+		txConfig.Timeout = time.Millisecond * time.Duration((data["timeout"].(float64)))
+	}
+	return func(conf *neo4j.TransactionConfig) {
+		if txConfig.Metadata != nil {
+			conf.Metadata = txConfig.Metadata
+		}
+		if txConfig.Timeout != 0 {
+			conf.Timeout = txConfig.Timeout
+		}
+	}
+}
+
+func (b *backend) toCypherAndParams(data map[string]interface{}) (string, map[string]interface{}) {
+	cypher := data["cypher"].(string)
+	params, _ := data["params"].(map[string]interface{})
+	for i, p := range params {
+		params[i] = cypherToNative(p)
+	}
+	return cypher, params
+}
+
 func (b *backend) handleTransactionFunc(isRead bool, data map[string]interface{}) {
 	sid := data["sessionId"].(string)
 	sessionState := b.sessionStates[sid]
@@ -219,9 +248,9 @@ func (b *backend) handleTransactionFunc(isRead bool, data map[string]interface{}
 	}
 	var err error
 	if isRead {
-		_, err = sessionState.session.ReadTransaction(blockingRetry)
+		_, err = sessionState.session.ReadTransaction(blockingRetry, b.toTransactionConfigApply(data))
 	} else {
-		_, err = sessionState.session.WriteTransaction(blockingRetry)
+		_, err = sessionState.session.WriteTransaction(blockingRetry, b.toTransactionConfigApply(data))
 	}
 
 	if err != nil {
@@ -236,6 +265,7 @@ func (b *backend) handleRequest(req map[string]interface{}) {
 	data := req["data"].(map[string]interface{})
 	fmt.Printf("REQ: %s\n", name)
 	switch name {
+
 	case "NewDriver":
 		// Parse authorization token
 		var authToken neo4j.AuthToken
@@ -269,8 +299,8 @@ func (b *backend) handleRequest(req map[string]interface{}) {
 		// Store the instance for later referal
 		idKey := b.nextId()
 		b.drivers[idKey] = driver
-
 		b.writeResponse("Driver", map[string]interface{}{"id": idKey})
+
 	case "DriverClose":
 		driverId := data["driverId"].(string)
 		driver := b.drivers[driverId]
@@ -281,6 +311,7 @@ func (b *backend) handleRequest(req map[string]interface{}) {
 		}
 		delete(b.drivers, driverId)
 		b.writeResponse("Driver", map[string]interface{}{"id": driverId})
+
 	case "NewSession":
 		driver := b.drivers[data["driverId"].(string)]
 		sessionConfig := neo4j.SessionConfig{}
@@ -309,6 +340,7 @@ func (b *backend) handleRequest(req map[string]interface{}) {
 		idKey := b.nextId()
 		b.sessionStates[idKey] = &sessionState{session: session}
 		b.writeResponse("Session", map[string]interface{}{"id": idKey})
+
 	case "SessionClose":
 		sessionId := data["sessionId"].(string)
 		sessionState := b.sessionStates[sessionId]
@@ -319,28 +351,11 @@ func (b *backend) handleRequest(req map[string]interface{}) {
 		}
 		delete(b.sessionStates, sessionId)
 		b.writeResponse("Session", map[string]interface{}{"id": sessionId})
+
 	case "SessionRun":
 		sessionState := b.sessionStates[data["sessionId"].(string)]
-		cypher := data["cypher"].(string)
-		params, _ := data["params"].(map[string]interface{})
-		for i, p := range params {
-			params[i] = cypherToNative(p)
-		}
-		txConfig := neo4j.TransactionConfig{}
-		// Optional transaction meta data
-		if data["txMeta"] != nil {
-			txConfig.Metadata = data["txMeta"].(map[string]interface{})
-		}
-		// Optional timeout in milliseconds
-		if data["timeout"] != nil {
-			txConfig.Timeout = time.Millisecond * time.Duration((data["timeout"].(float64)))
-		}
-		result, err := sessionState.session.Run(cypher, params, func(conf *neo4j.TransactionConfig) {
-			if txConfig.Metadata != nil {
-				conf.Metadata = txConfig.Metadata
-			}
-			conf.Timeout = txConfig.Timeout
-		})
+		cypher, params := b.toCypherAndParams(data)
+		result, err := sessionState.session.Run(cypher, params, b.toTransactionConfigApply(data))
 		if err != nil {
 			b.writeError(err)
 			return
@@ -348,13 +363,21 @@ func (b *backend) handleRequest(req map[string]interface{}) {
 		idKey := b.nextId()
 		b.results[idKey] = result
 		b.writeResponse("Result", map[string]interface{}{"id": idKey})
+
+	case "SessionBeginTransaction":
+		sessionState := b.sessionStates[data["sessionId"].(string)]
+		tx, err := sessionState.session.BeginTransaction(b.toTransactionConfigApply(data))
+		if err != nil {
+			b.writeError(err)
+			return
+		}
+		idKey := b.nextId()
+		b.transactions[idKey] = tx
+		b.writeResponse("Transaction", map[string]interface{}{"id": idKey})
+
 	case "TransactionRun":
 		tx := b.transactions[data["txId"].(string)]
-		cypher := data["cypher"].(string)
-		params, _ := data["params"].(map[string]interface{})
-		for i, p := range params {
-			params[i] = cypherToNative(p)
-		}
+		cypher, params := b.toCypherAndParams(data)
 		result, err := tx.Run(cypher, params)
 		if err != nil {
 			b.writeError(err)
