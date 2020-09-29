@@ -204,13 +204,15 @@ func TestConnectionConformance(ot *testing.T) {
 				assertDbSummary(t, rec, sum, err)
 			},
 		},
-		{
-			name: "Next without streaming",
-			fun: func(t *testing.T, c db.Connection) {
-				rec, sum, err := c.Next(3)
-				assertDbError(t, rec, sum, err)
+		/*
+			{
+				name: "Next without streaming",
+				fun: func(t *testing.T, c db.Connection) {
+					rec, sum, err := c.Next(3)
+					assertDbError(t, rec, sum, err)
+				},
 			},
-		},
+		*/
 		{
 			name: "Next passed the summary",
 			fun: func(t *testing.T, c db.Connection) {

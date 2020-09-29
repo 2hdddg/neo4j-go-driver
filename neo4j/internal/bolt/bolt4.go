@@ -71,10 +71,13 @@ func (i *internalTx4) toMeta() map[string]interface{} {
 }
 
 type bolt4 struct {
-	state         int
-	txId          int64
-	streamId      int64
-	streamKeys    []string
+	state int
+	txId  int64
+	//currStream    *bolt4Stream
+	//streamId      int64
+	streams    []stream
+	currStream *stream
+	//streamKeys    []string
 	conn          net.Conn
 	serverName    string
 	chunker       *chunker
@@ -104,6 +107,7 @@ func NewBolt4(serverName string, conn net.Conn, log log.Logger) *bolt4 {
 		unpacker:      &packstream.Unpacker{},
 		birthDate:     time.Now(),
 		log:           log,
+		streams:       make([]stream, 0, 1),
 	}
 }
 
@@ -277,9 +281,8 @@ func (b *bolt4) TxBegin(
 
 // Should NOT set b.err or change b.state as this is used to guard from
 // misuse from clients that stick to their connections when they shouldn't.
-func (b *bolt4) assertHandle(id int64, h db.Handle) error {
-	hid, ok := h.(int64)
-	if !ok || hid != id {
+func (b *bolt4) assertHandle(id uint64, h db.Handle) error {
+	if id != h {
 		err := errors.New("Invalid handle")
 		b.log.Error(log.Bolt4, b.logId, err)
 		return err
@@ -317,11 +320,22 @@ func (b *bolt4) TxCommit(txh db.Handle) error {
 		return nil
 	}
 
+	discardedStreams := 0
+
 	// Consume pending stream if any to turn state from streamingtx to tx
 	if b.state == bolt4_streamingtx {
-		if err := b.consumeStream(); err != nil {
+		// All streams will be in discarding mode
+		b.closeStreams()
+		// Move current stream to a non streaming position
+		s := &b.streams[b.currStream]
+		if discardedStreams += b.streamToPageOrEnd(s); b.err != nil {
 			return err
 		}
+		// All streams are either completed or on a page position
+		if discardedStreams += b.discardStreams(); b.err != nil {
+			return b.err
+		}
+		b.state = bolt4_tx
 	}
 
 	// Should be in vanilla tx state now
@@ -334,7 +348,19 @@ func (b *bolt4) TxCommit(txh db.Handle) error {
 		return b.err
 	}
 
-	// Evaluate server response
+	// Success message to receive for each discarded stream
+	for discardedStreams > 0 {
+		succRes := b.receiveSuccess()
+		if b.err != nil {
+			return b.err
+		}
+		discardSuccess := succRes.discard()
+		// TODO: Summary!!!
+		b.streamDiscarded(discardSuccess.qid)
+		discardedStreams--
+	}
+
+	// Evaluate server commit response
 	succRes := b.receiveSuccess()
 	if b.err != nil {
 		return b.err
@@ -370,9 +396,12 @@ func (b *bolt4) TxRollback(txh db.Handle) error {
 
 	// Can not send rollback while still streaming, consume to turn state into tx
 	if b.state == bolt4_streamingtx {
-		if err := b.consumeStream(); err != nil {
-			return err
-		}
+		// TODO: Same as TxCommit
+		/*
+			if err := b.consumeStream(); err != nil {
+				return err
+			}
+		*/
 	}
 
 	// Should be in vanilla tx state now
@@ -395,6 +424,7 @@ func (b *bolt4) TxRollback(txh db.Handle) error {
 }
 
 // Discards all records, keeps bookmark
+/*
 func (b *bolt4) consumeStream() error {
 	if b.state != bolt4_streaming && b.state != bolt4_streamingtx {
 		// Nothing to do
@@ -402,7 +432,7 @@ func (b *bolt4) consumeStream() error {
 	}
 
 	for {
-		_, sum, err := b.Next(b.streamId)
+		_, sum, err := b.next(&b.streams[b.currStream])
 		if err != nil {
 			return err
 		}
@@ -412,13 +442,163 @@ func (b *bolt4) consumeStream() error {
 	}
 	return nil
 }
+*/
 
-func (b *bolt4) run(cypher string, params map[string]interface{}, tx *internalTx4) (*db.Stream, error) {
-	b.log.Debugf(log.Bolt4, b.logId, "run")
-	// If already streaming, consume the whole thing first
-	if err := b.consumeStream(); err != nil {
-		return nil, err
+// Returns 1 if discard message appended otherwise zero.
+// Sets b.err upon error
+func (b *bolt4) streamToPageOrEnd() int {
+	s := b.currStream
+	if s.closed {
+		// Fast path, throw away records and discard rest of stream if possible
+		for b.err != nil && s.pos == pos_stream {
+			b.receiveNext()
+		}
+		if b.err != nil && s.pos == pos_page {
+			b.appendMsg(msgDiscardN, map[string]interface{}{"n": -1, "qid": s.qid})
+			s.pos = pos_discard
+			return 1
+		}
+		s.pos = pos_end
+		return 0
 	}
+
+	for b.err != nil && s.pos == pos_stream {
+		rec := b.receiveNext(s)
+		if rec != nil {
+			s.pushBack(rec)
+			continue
+		}
+		/*
+			if sum != nil {
+				s.summary(sum)
+				// TODO: Check bookmark
+			}
+		*/
+		// TODO: Page!!!
+	}
+	return 0
+}
+
+// Synced discards!
+func (b *bolt4) streamToEnd() {
+	discarded := b.streamToPageOrEnd(b.currStream)
+	// TODO: Need to flush and wait for success
+	if discarded > 0 {
+		panic("Discarded")
+	}
+	if s.pos != pos_end {
+		panic("Not end")
+	}
+	return 0
+}
+
+func (b *bolt4) streamDiscarded(qid int) {
+	for i := range b.streams {
+		s := &b.streams[i]
+		if s.qid == qid {
+			s.pos = end
+		}
+	}
+}
+
+func (b *bolt4) streamOnHold() {
+	if b.currStream == nil {
+		return
+	}
+
+	if b.state == bolt4_streaming {
+		// Currently streaming auto-commit.
+		// Only one auto-commit stream is allowed, so get this stream in it's desired
+		// state before continuing.
+		b.streamToEnd()
+		if b.err != nil {
+			return nil, b.err
+		}
+		// TODO: Handle bookmark!
+		b.currStream = nil
+		return
+	}
+
+	if b.state == bolt4_streamingtx {
+		// Currently streaming in current transaction, that stream needs to be moved to
+		// page position, end or be discarded
+		discarded := b.streamToPageOrEnd()
+		if discarded > 0 {
+			b.state = bolt4_dead
+			b.err = errors.New("Should not happen")
+		}
+		if b.err != nil {
+			return nil, b.err
+		}
+		b.currStream = nil
+		return
+	}
+}
+
+func (b *bolt4) closeStreams() {
+	for i := range b.streams {
+		s := &b.streams[i]
+		s.close()
+	}
+}
+
+func (b *bolt4) discardStreams() int {
+	num := 0
+	for i := range b.streams {
+		s := &b.streams[i]
+		if s.pos == pos_page {
+			b.appendMsg(msgDiscardN, map[string]interface{}{"n": -1, "qid": s.qid})
+			num++
+			s.pos = pos_discard
+		}
+	}
+	return num
+}
+
+func (b *bolt4) resetStreams() {
+	for i := range b.streams {
+		s := &b.streams[i]
+		s.reset()
+	}
+}
+
+func (b *bolt4) run(cypher string, params map[string]interface{}, tx *internalTx4) (db.Handle, error) {
+	b.log.Debugf(log.Bolt4, b.logId, "run")
+
+	// Put current stream if any on hold
+	b.streamOnHold()
+	/*
+		if b.state == bolt4_streaming && b.currStream != nil {
+			// Currently streaming auto-commit.
+			// Only one auto-commit stream is allowed, so get this stream in it's desired
+			// state before continuing.
+			b.streamToEnd(b.currStream)
+			if b.err != nil {
+				return nil, b.err
+			}
+			// TODO: Handle bookmark!
+		} else if b.state == bolt4_streamingtx && b.currStream != nil {
+			// Currently streaming in current transaction, that stream needs to be moved to
+			// page position, end or be discarded
+			stream := &b.streams[b.currStream]
+			discarded := b.streamToPageOrEnd(stream)
+			if discarded > 0 {
+				b.state = bolt4_dead
+				b.err = errors.New("Should not happen")
+			}
+			if b.err != nil {
+				return nil, b.err
+			}
+		}
+		b.currStream = nil
+	*/
+
+	/*
+		// If already streaming, consume the whole thing first
+		if err := b.consumeStream(); err != nil {
+			return nil, err
+		}
+	*/
 
 	if err := b.assertState(bolt4_tx, bolt4_ready, bolt4_pendingtx); err != nil {
 		return nil, err
@@ -470,7 +650,7 @@ func (b *bolt4) run(cypher string, params map[string]interface{}, tx *internalTx
 		return nil, b.err
 	}
 	b.tfirst = runRes.t_first
-	b.streamKeys = runRes.fields
+	//b.streamKeys = runRes.fields
 	// Change state to streaming
 	if b.state == bolt4_ready {
 		b.state = bolt4_streaming
@@ -478,14 +658,34 @@ func (b *bolt4) run(cypher string, params map[string]interface{}, tx *internalTx
 		b.state = bolt4_streamingtx
 	}
 
-	b.streamId = time.Now().Unix()
-	stream := &db.Stream{Keys: b.streamKeys, Handle: b.streamId}
-	return stream, nil
+	// Find a free stream slot
+	i := 0
+	for ; i < len(b.streams); i++ {
+		stream := &b.streams[i]
+		if stream.pos == pos_zero {
+			b.currStream = stream
+			break
+		}
+	}
+	// No stream slot available
+	if b.currStream == nil {
+		b.streams = append(b.streams, stream{})
+		b.currStream = &b.streams[i]
+	}
+	b.currStream.reset()
+	b.currStream.keys = b.runRes.fields
+	b.currStream.pos = pos_stream
+
+	return i, nil
+
+	//b.currStream = &bolt4Stream{streamId: b.streamId}
+	//estream := &db.Stream{Keys: b.streamKeys, Handle: b.currStream}
+	//return estream, nil
 }
 
 func (b *bolt4) Run(
 	cypher string, params map[string]interface{}, mode db.AccessMode,
-	bookmarks []string, timeout time.Duration, txMeta map[string]interface{}) (*db.Stream, error) {
+	bookmarks []string, timeout time.Duration, txMeta map[string]interface{}) (db.Handle, error) {
 
 	if err := b.assertState(bolt4_streaming, bolt4_ready); err != nil {
 		return nil, err
@@ -501,7 +701,7 @@ func (b *bolt4) Run(
 	return b.run(cypher, params, &tx)
 }
 
-func (b *bolt4) RunTx(txh db.Handle, cypher string, params map[string]interface{}) (*db.Stream, error) {
+func (b *bolt4) RunTx(txh db.Handle, cypher string, params map[string]interface{}) (db.Handle, error) {
 	if err := b.assertHandle(b.txId, txh); err != nil {
 		return nil, err
 	}
@@ -511,25 +711,55 @@ func (b *bolt4) RunTx(txh db.Handle, cypher string, params map[string]interface{
 	return stream, err
 }
 
-// Reads one record from the stream.
-func (b *bolt4) Next(shandle db.Handle) (*db.Record, *db.Summary, error) {
-	if err := b.assertHandle(b.streamId, shandle); err != nil {
-		return nil, nil, err
+// Client consumption of records and summary
+func (b *bolt4) Next(streamHandle db.Handle) (*db.Record, *db.Summary, error) {
+	/*
+		magic := shandle >> 8
+		if err := b.assertHandle(b.streamMagic, magic); err != nil {
+			return nil, nil, err
+		}
+	*/
+	// TODO: Some magic to avoid destroying connection from other session
+	// No need for the stream to be current if it is buffered
+	stream := &b.streams[int(streamHandle)]
+
+	// If the stream is in page or end position it might have records buffered
+	rec := stream.front()
+	if rec != nil {
+		return rec, nil
+	}
+	if stream.sum != nil {
+		return nil, stream.sum
 	}
 
 	if err := b.assertState(bolt4_streaming, bolt4_streamingtx); err != nil {
 		return nil, nil, err
 	}
 
+	// Make sure that the requested stream is the current one
+	if b.currStream == nil {
+		b.currStream = stream
+	} else if b.currStream != stream {
+		b.streamOnHold()
+		b.currStream = stream
+	}
+
+	rec = b.receiveNext()
+	return rec, b.currStream.sum, b.err
+}
+
+// Receives next record on the current stream from the network
+// Updates position state of current stream
+func (b *bolt4) receiveNext() *db.Record {
 	res := b.receiveMsg()
 	if b.err != nil {
-		return nil, nil, b.err
+		return nil
 	}
 
 	switch x := res.(type) {
 	case *db.Record:
 		x.Keys = b.streamKeys
-		return x, nil, nil
+		return x
 	case *successResponse:
 		// End of stream
 		// Parse summary
@@ -538,23 +768,26 @@ func (b *bolt4) Next(shandle db.Handle) (*db.Record, *db.Summary, error) {
 			b.state = bolt4_dead
 			b.err = errors.New("Failed to parse summary")
 			b.log.Error(log.Bolt4, b.logId, b.err)
-			return nil, nil, b.err
+			return nil
 		}
-		if b.state == bolt4_streamingtx {
-			b.state = bolt4_tx
-		} else {
-			b.state = bolt4_ready
-			// Keep bookmark for auto-commit tx
-			if len(sum.Bookmark) > 0 {
-				b.bookmark = sum.Bookmark
+		/*
+			if b.state == bolt4_streamingtx {
+				b.state = bolt4_tx
+			} else {
+				b.state = bolt4_ready
+				// Keep bookmark for auto-commit tx
 			}
+		*/
+		if len(sum.Bookmark) > 0 {
+			b.bookmark = sum.Bookmark // Only for auto-commit
 		}
-		b.streamId = 0
+		//b.streamId = 0
 		// Add some extras to the summary
 		sum.ServerVersion = b.serverVersion
 		sum.ServerName = b.serverName
 		sum.TFirst = b.tfirst
-		return nil, sum, nil
+		b.currStream.summary(sum)
+		return nil
 	case *db.Neo4jError:
 		b.err = x
 		b.state = bolt4_failed
@@ -564,12 +797,12 @@ func (b *bolt4) Next(shandle db.Handle) (*db.Record, *db.Summary, error) {
 		} else {
 			b.log.Error(log.Bolt4, b.logId, x)
 		}
-		return nil, nil, x
+		return nil
 	default:
 		b.state = bolt4_dead
 		b.err = errors.New("Unknown response")
 		b.log.Error(log.Bolt4, b.logId, b.err)
-		return nil, nil, b.err
+		return ni
 	}
 }
 
@@ -590,7 +823,7 @@ func (b *bolt4) Reset() {
 		// Reset internal state
 		b.txId = 0
 		b.streamId = 0
-		b.streamKeys = []string{}
+		b.currStream = nil
 		b.bookmark = ""
 		b.pendingTx = nil
 		b.databaseName = db.DefaultDatabase

@@ -41,23 +41,31 @@ type successResponse struct {
 type runSuccess struct {
 	fields  []string
 	t_first int64
+	qid     int64
 }
 
 func (s *successResponse) run() *runSuccess {
+	res := runSuccess{}
+
 	fieldsx, fok := s.meta["fields"].([]interface{})
 	if !fok {
 		return nil
 	}
-	t_first, _ := s.meta["t_first"].(int64)
-	fields := make([]string, len(fieldsx))
+	res.t_first, _ = s.meta["t_first"].(int64)
+	res.fields = make([]string, len(fieldsx))
 	for i, x := range fieldsx {
 		s, ok := x.(string)
 		if !ok {
 			return nil
 		}
-		fields[i] = s
+		res.fields[i] = s
 	}
-	return &runSuccess{fields: fields, t_first: t_first}
+	qidx, qok := s.meta["qid"]
+	if qok {
+		res.qid, _ = qidx.(int64)
+	}
+
+	return &res
 }
 
 type commitSuccess struct {
@@ -68,6 +76,17 @@ func (s *successResponse) commit() *commitSuccess {
 	bookmark, _ := s.meta["bookmark"].(string)
 	return &commitSuccess{
 		bookmark: bookmark,
+	}
+}
+
+type discardSuccess struct {
+	qid int
+}
+
+func (s *successResponse) discard() *discardSuccess {
+	qid, _ := s.meta["qid"].(int)
+	return &discardSuccess{
+		qid: qid,
 	}
 }
 

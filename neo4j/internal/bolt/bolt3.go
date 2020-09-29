@@ -68,10 +68,11 @@ func (i *internalTx3) toMeta() map[string]interface{} {
 }
 
 type bolt3 struct {
-	state         int
-	txId          int64
-	streamId      int64
-	streamKeys    []string
+	state      int
+	txId       int64
+	streamId   int64
+	currStream *stream
+	//streamKeys    []string
 	conn          net.Conn
 	serverName    string
 	chunker       *chunker
@@ -385,7 +386,6 @@ func (b *bolt3) TxRollback(txh db.Handle) error {
 	return nil
 }
 
-// Discards all records, keeps bookmark
 func (b *bolt3) consumeStream() error {
 	if b.state != bolt3_streaming && b.state != bolt3_streamingtx {
 		// Nothing to do
@@ -510,15 +510,18 @@ func (b *bolt3) Next(shandle db.Handle) (*db.Record, *db.Summary, error) {
 		return nil, nil, err
 	}
 
+}
+
+func (b *bolt3) receiveNext() *db.Record {
 	res := b.receiveMsg()
 	if b.err != nil {
-		return nil, nil, b.err
+		return nil
 	}
 
 	switch x := res.(type) {
 	case *db.Record:
 		x.Keys = b.streamKeys
-		return x, nil, nil
+		return x
 	case *successResponse:
 		// End of stream
 		// Parse summary
@@ -527,7 +530,7 @@ func (b *bolt3) Next(shandle db.Handle) (*db.Record, *db.Summary, error) {
 			b.state = bolt3_dead
 			b.err = errors.New("Failed to parse summary")
 			b.log.Error(log.Bolt3, b.logId, b.err)
-			return nil, nil, b.err
+			return nil
 		}
 		if b.state == bolt3_streamingtx {
 			b.state = bolt3_tx
@@ -543,7 +546,8 @@ func (b *bolt3) Next(shandle db.Handle) (*db.Record, *db.Summary, error) {
 		sum.ServerVersion = b.serverVersion
 		sum.ServerName = b.serverName
 		sum.TFirst = b.tfirst
-		return nil, sum, nil
+		b.currStream(sum)
+		return nil
 	case *db.Neo4jError:
 		b.err = x
 		b.state = bolt3_failed
@@ -553,12 +557,12 @@ func (b *bolt3) Next(shandle db.Handle) (*db.Record, *db.Summary, error) {
 		} else {
 			b.log.Error(log.Bolt3, b.logId, x)
 		}
-		return nil, nil, x
+		return nil
 	default:
 		b.state = bolt3_dead
 		b.err = errors.New("Unknown response")
 		b.log.Error(log.Bolt3, b.logId, b.err)
-		return nil, nil, b.err
+		return nil
 	}
 }
 

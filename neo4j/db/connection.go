@@ -31,24 +31,29 @@ const (
 	ReadMode  AccessMode = 1
 )
 
-type Handle interface{}
+type Handle uint64
 
+/*
 type Stream struct {
 	Handle Handle
 	Keys   []string
 }
+*/
 
 // Abstract database server connection.
 type Connection interface {
 	TxBegin(mode AccessMode, bookmarks []string, timeout time.Duration, meta map[string]interface{}) (Handle, error)
 	TxRollback(tx Handle) error
 	TxCommit(tx Handle) error
-	Run(cypher string, params map[string]interface{}, mode AccessMode, bookmarks []string, timeout time.Duration, meta map[string]interface{}) (*Stream, error)
-	RunTx(tx Handle, cypher string, params map[string]interface{}) (*Stream, error)
+	Run(cypher string, params map[string]interface{}, mode AccessMode, bookmarks []string, timeout time.Duration, meta map[string]interface{}) (Handle, error)
+	RunTx(tx Handle, cypher string, params map[string]interface{}) (Handle, error)
 	// Moves to next item in the stream.
 	// If error is nil, either Record or Summary has a value, if Record is nil there are no more records.
 	// If error is non nil, neither Record or Summary has a value.
 	Next(streamHandle Handle) (*Record, *Summary, error)
+	// Stop streaming
+	Stop(streamHandle Handle) (*Summary, error)
+	Keys(streamHandle Handle) ([]string, error)
 	// Returns bookmark from last committed transaction or last finished auto-commit transaction.
 	// Note that if there is an ongoing auto-commit transaction (stream active) the bookmark
 	// from that is not included. Empty string if no bookmark.

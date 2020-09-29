@@ -52,27 +52,29 @@ type iterator interface {
 }
 
 type result struct {
-	err         error
-	iter        iterator
-	stream      *db.Stream
-	cypher      string
-	params      map[string]interface{}
-	allReceived bool
-	unconsumed  list.List
-	record      *Record
-	summary     *db.Summary
+	err error
+	//iter         iterator
+	conn         db.Connection
+	streamHandle db.Handle
+	cypher       string
+	params       map[string]interface{}
+	//allReceived  bool
+	//unconsumed list.List
+	record  *Record
+	summary *db.Summary
 }
 
-func newResult(iter iterator, str *db.Stream, cypher string, params map[string]interface{}) *result {
+func newResult(conn db.Connection, streamHandle db.Handle, cypher string, params map[string]interface{}) *result {
 	return &result{
-		iter:   iter,
-		stream: str,
-		cypher: cypher,
-		params: params,
+		conn:         conn,
+		streamHandle: streamHandle,
+		cypher:       cypher,
+		params:       params,
 	}
 }
 
 // Receive another record.
+/*
 func (r *result) doFetch() *Record {
 	var rec *Record
 	var sum *db.Summary
@@ -81,14 +83,19 @@ func (r *result) doFetch() *Record {
 	r.summary = sum
 	return rec
 }
+*/
 
 func (r *result) Keys() ([]string, error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	return r.stream.Keys, nil
+	/*
+		if r.err != nil {
+			return nil, r.err
+		}
+		return r.stream.Keys, nil
+	*/
+	return r.conn.Keys(r.streamHandle)
 }
 
+/*
 func (r *result) next() {
 	e := r.unconsumed.Front()
 	if e == nil {
@@ -108,6 +115,11 @@ func (r *result) next() {
 	r.record = e.Value.(*Record)
 	return
 }
+*/
+
+func (r *result) next() {
+	r.record, r.summary, r.err = r.conn.Next(r.streamHandle)
+}
 
 func (r *result) Next() bool {
 	r.next()
@@ -123,10 +135,6 @@ func (r *result) NextRecord(record **Record) bool {
 }
 
 func (r *result) Record() *Record {
-	// Unbox for better client experience
-	if r.record == nil {
-		return nil
-	}
 	return r.record
 }
 
@@ -135,6 +143,7 @@ func (r *result) Err() error {
 }
 
 // Used internally to fetch all records from stream and put them in unconsumed list.
+/*
 func (r *result) fetchAll() {
 	for !r.allReceived {
 		rec := r.doFetch()
@@ -143,11 +152,11 @@ func (r *result) fetchAll() {
 		}
 	}
 }
+*/
 
 func (r *result) Collect() ([]*Record, error) {
 	recs := make([]*Record, 0, 1024)
 	var rec *Record
-	// Need to consider unconsumed
 	for r.NextRecord(&rec) {
 		recs = append(recs, rec)
 	}
@@ -159,7 +168,6 @@ func (r *result) Collect() ([]*Record, error) {
 
 func (r *result) Single() (*Record, error) {
 	var rec *Record
-	// Need to consider unconsumed
 	if !r.NextRecord(&rec) {
 		if r.err != nil {
 			return nil, wrapBoltError(r.err)
@@ -173,15 +181,21 @@ func (r *result) Single() (*Record, error) {
 }
 
 func (r *result) Consume() (ResultSummary, error) {
-	for !r.allReceived {
-		r.doFetch()
-	}
-	if r.summary == nil || r.err != nil {
-		return nil, wrapBoltError(r.err)
-	}
-	return &resultSummary{
-		sum:    r.summary,
-		cypher: r.cypher,
-		params: r.params,
-	}, nil
+	r.record = nil
+	r.summary, r.err = r.conn.Stop(r.streamHandle)
+	return r.summary, r.err
+
+	/*
+		for !r.allReceived {
+			r.doFetch()
+		}
+		if r.summary == nil || r.err != nil {
+			return nil, wrapBoltError(r.err)
+		}
+		return &resultSummary{
+			sum:    r.summary,
+			cypher: r.cypher,
+			params: r.params,
+		}, nil
+	*/
 }
