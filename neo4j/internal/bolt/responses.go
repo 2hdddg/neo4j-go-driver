@@ -20,7 +20,7 @@
 package bolt
 
 import (
-	"github.com/neo4j/neo4j-go-driver/v4/neo4j/db"
+//"github.com/neo4j/neo4j-go-driver/v4/neo4j/db"
 )
 
 // Server ignored request.
@@ -33,6 +33,7 @@ func (r *ignoredResponse) Error() string {
 
 // Success response from server, success contains meta data that looks different depending
 // on what request the response is for.
+/*
 type successResponse struct {
 	meta map[string]interface{}
 }
@@ -250,3 +251,4 @@ func parseNotification(m map[string]interface{}) db.Notification {
 
 	return n
 }
+*/

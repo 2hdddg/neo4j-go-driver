@@ -85,6 +85,7 @@ type bolt3 struct {
 	log           log.Logger
 	receiveBuffer []byte
 	err           error // Last fatal error
+	rootHydrator  rootHydrator
 }
 
 func NewBolt3(serverName string, conn net.Conn, log log.Logger) *bolt3 {
@@ -145,7 +146,7 @@ func (b *bolt3) receiveMsg() interface{} {
 		return nil
 	}
 
-	msg, err := b.unpacker.UnpackStruct(b.receiveBuffer, hydrate)
+	msg, err := b.unpacker.Unpack(&b.rootHydrator, b.receiveBuffer)
 	if err != nil {
 		b.log.Error(log.Bolt3, b.logId, err)
 		b.state = bolt3_dead
@@ -212,15 +213,9 @@ func (b *bolt3) connect(auth map[string]interface{}, userAgent string) error {
 		return b.err
 	}
 
-	helloRes := succRes.hello()
-	if helloRes == nil {
-		b.state = bolt3_dead
-		b.err = errors.New(fmt.Sprintf("Unexpected server response: %+v", succRes))
-		return b.err
-	}
-	b.connId = helloRes.connectionId
+	b.connId = succRes.connectionId
 	b.logId = fmt.Sprintf("%s@%s", b.connId, b.serverName)
-	b.serverVersion = helloRes.server
+	b.serverVersion = succRes.server
 
 	// Transition into ready state
 	b.state = bolt3_ready
@@ -331,17 +326,10 @@ func (b *bolt3) TxCommit(txh db.TxHandle) error {
 	if b.err != nil {
 		return b.err
 	}
-	commitSuccess := succRes.commit()
-	if commitSuccess == nil {
-		b.state = bolt3_dead
-		b.err = errors.New(fmt.Sprintf("Failed to parse commit response: %+v", succRes))
-		b.log.Error(log.Bolt3, b.logId, b.err)
-		return b.err
-	}
 
 	// Keep track of bookmark
-	if len(commitSuccess.bookmark) > 0 {
-		b.bookmark = commitSuccess.bookmark
+	if len(succRes.bookmark) > 0 {
+		b.bookmark = succRes.bookmark
 	}
 
 	// Transition into ready state
@@ -480,15 +468,7 @@ func (b *bolt3) run(cypher string, params map[string]interface{}, tx *internalTx
 	if b.err != nil {
 		return nil, b.err
 	}
-	// Extract the RUN response from success response
-	runRes := res.run()
-	if runRes == nil {
-		b.state = bolt3_dead
-		b.err = errors.New(fmt.Sprintf("Failed to parse RUN response: %+v", res))
-		b.log.Error(log.Bolt3, b.logId, b.err)
-		return nil, b.err
-	}
-	b.tfirst = runRes.t_first
+	b.tfirst = res.tfirst
 	// Change state to streaming
 	if b.state == bolt3_ready {
 		b.state = bolt3_streaming
@@ -496,7 +476,7 @@ func (b *bolt3) run(cypher string, params map[string]interface{}, tx *internalTx
 		b.state = bolt3_streamingtx
 	}
 
-	b.currStream = &stream{keys: runRes.fields}
+	b.currStream = &stream{keys: append([]string{}, res.fields...)}
 	return b.currStream, nil
 }
 

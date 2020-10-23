@@ -93,6 +93,7 @@ type bolt4 struct {
 	databaseName  string
 	receiveBuffer []byte
 	err           error // Last fatal error
+	rootHydrator  rootHydrator
 }
 
 func NewBolt4(serverName string, conn net.Conn, log log.Logger) *bolt4 {
@@ -209,7 +210,7 @@ func (b *bolt4) receiveMsg() interface{} {
 		return nil
 	}
 
-	msg, err := b.unpacker.UnpackStruct(b.receiveBuffer, hydrate)
+	msg, err := b.unpacker.Unpack(&b.rootHydrator, b.receiveBuffer)
 	b.setError(err, true)
 	return msg
 }
@@ -267,13 +268,8 @@ func (b *bolt4) connect(minor int, auth map[string]interface{}, userAgent string
 		return b.err
 	}
 
-	helloResponse := successResponse.hello()
-	if helloResponse == nil {
-		b.setError(errors.New(fmt.Sprintf("Unexpected server response: %+v", successResponse)), true)
-		return b.err
-	}
-	b.connId = helloResponse.connectionId
-	b.serverVersion = helloResponse.server
+	b.connId = successResponse.connectionId
+	b.serverVersion = successResponse.server
 
 	// Construct log identity
 	b.logId = fmt.Sprintf("%s@%s", b.connId, b.serverName)
@@ -385,10 +381,8 @@ func (b *bolt4) TxCommit(txh db.TxHandle) error {
 		return b.err
 	}
 	// Keep track of bookmark
-	// Parsing assumed not to fail
-	commitSuccess := succRes.commit()
-	if len(commitSuccess.bookmark) > 0 {
-		b.bookmark = commitSuccess.bookmark
+	if len(succRes.bookmark) > 0 {
+		b.bookmark = succRes.bookmark
 	}
 
 	// Transition into ready state
@@ -579,13 +573,7 @@ func (b *bolt4) run(cypher string, params map[string]interface{}, fetchSize int,
 		// pull message as well, this will be cleaned up by Reset
 		return nil, b.err
 	}
-	// Extract the RUN response from success response
-	runRes := res.run()
-	if runRes == nil {
-		b.setError(errors.New(fmt.Sprintf("Failed to parse RUN response: %+v", res)), true)
-		return nil, b.err
-	}
-	b.tfirst = runRes.t_first
+	b.tfirst = res.tfirst
 	// Change state to streaming
 	if b.state == bolt4_ready {
 		b.state = bolt4_streaming
@@ -594,7 +582,11 @@ func (b *bolt4) run(cypher string, params map[string]interface{}, fetchSize int,
 	}
 
 	// Create a stream representation, set it to current and track it
-	stream := &stream{keys: runRes.fields, qid: runRes.qid, fetchSize: fetchSize}
+	stream := &stream{
+		keys:      append([]string{}, res.fields...), // Need to copy
+		qid:       res.qid,
+		fetchSize: fetchSize,
+	}
 	(&b.streams).attach(stream)
 
 	return stream, nil
@@ -777,7 +769,7 @@ func (b *bolt4) receiveNext() (*db.Record, bool, *db.Summary) {
 		return x, false, nil
 	case *successResponse:
 		// End of batch or end of stream?
-		if x.hasMore() {
+		if x.hasMore {
 			// End of batch
 			return nil, true, nil
 		}
@@ -847,7 +839,7 @@ func (b *bolt4) Reset() {
 			// Command ignored
 		case *successResponse:
 			// Reset success are always empty, none of the other responses are.
-			if len(x.meta) == 0 {
+			if x.num == 0 {
 				// Reset confirmed
 				b.state = bolt4_ready
 				return
