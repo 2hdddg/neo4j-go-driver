@@ -22,6 +22,7 @@ package bolt
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/db"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
@@ -205,7 +206,7 @@ func (h *hydrator) success(n uint32) *success {
 			succ.db = h.unp.String()
 		case "stats":
 			h.trash()
-			panic("stats not implemented")
+			//panic("stats not implemented")
 		case "plan":
 			h.trash()
 			panic("plan not implemented")
@@ -353,49 +354,171 @@ func (h *hydrator) node(num uint32) interface{} {
 }
 
 func (h *hydrator) relationship(n uint32) interface{} {
-	panic("")
+	r := dbtype.Relationship{}
+	h.unp.Next()
+	r.Id = h.unp.Int()
+	h.unp.Next()
+	r.StartId = h.unp.Int()
+	h.unp.Next()
+	r.EndId = h.unp.Int()
+	h.unp.Next()
+	r.Props = h.amap()
+	return r
 }
 
 func (h *hydrator) relationnode(n uint32) interface{} {
-	panic("")
+	r := relNode{}
+	h.unp.Next()
+	r.id = h.unp.Int()
+	h.unp.Next()
+	r.name = h.unp.String()
+	h.unp.Next()
+	r.props = h.amap()
+	return &r
 }
 
 func (h *hydrator) path(n uint32) interface{} {
-	panic("")
+	// Array of nodes
+	h.unp.Next()
+	num := h.unp.Int()
+	nodes := make([]dbtype.Node, num)
+	for i := range nodes {
+		h.unp.Next()
+		node, ok := h.value().(dbtype.Node)
+		if !ok {
+			h.setErr(errors.New("Path hydrate error"))
+			return nil
+		}
+		nodes[i] = node
+	}
+	// Array of relnodes
+	h.unp.Next()
+	num = h.unp.Int()
+	rnodes := make([]*relNode, num)
+	for i := range rnodes {
+		h.unp.Next()
+		rnode, ok := h.value().(*relNode)
+		if !ok {
+			h.setErr(errors.New("Path hydrate error"))
+			return nil
+		}
+		rnodes[i] = rnode
+	}
+	// Array of indexes
+	h.unp.Next()
+	num = h.unp.Int()
+	indexes := make([]int, num)
+	for i := range indexes {
+		h.unp.Next()
+		indexes[i] = int(h.unp.Int())
+	}
+
+	if (len(indexes) & 0x01) == 1 {
+		h.setErr(errors.New("Path hydrate error"))
+		return nil
+	}
+
+	return buildPath(nodes, rnodes, indexes)
 }
 
 func (h *hydrator) point2d(n uint32) interface{} {
-	panic("")
+	p := dbtype.Point2D{}
+	h.unp.Next()
+	p.SpatialRefId = uint32(h.unp.Int())
+	h.unp.Next()
+	p.X = h.unp.Float()
+	h.unp.Next()
+	p.Y = h.unp.Float()
+	return p
 }
 
 func (h *hydrator) point3d(n uint32) interface{} {
-	panic("")
+	p := dbtype.Point3D{}
+	h.unp.Next()
+	p.SpatialRefId = uint32(h.unp.Int())
+	h.unp.Next()
+	p.X = h.unp.Float()
+	h.unp.Next()
+	p.Y = h.unp.Float()
+	h.unp.Next()
+	p.Z = h.unp.Float()
+	return p
 }
 
 func (h *hydrator) dateTimeOffset(n uint32) interface{} {
-	panic("")
+	h.unp.Next()
+	secs := h.unp.Int()
+	h.unp.Next()
+	nans := h.unp.Int()
+	h.unp.Next()
+	offs := h.unp.Int()
+	t := time.Unix(secs, nans).UTC()
+	l := time.FixedZone("Offset", int(offs))
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), l)
 }
 
 func (h *hydrator) dateTimeNamedZone(n uint32) interface{} {
-	panic("")
+	h.unp.Next()
+	secs := h.unp.Int()
+	h.unp.Next()
+	nans := h.unp.Int()
+	h.unp.Next()
+	zone := h.unp.String()
+	t := time.Unix(secs, nans).UTC()
+	l, err := time.LoadLocation(zone)
+	if err != nil {
+		h.setErr(err)
+		return nil
+	}
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), l)
 }
 
 func (h *hydrator) localDateTime(n uint32) interface{} {
-	panic("")
+	h.unp.Next()
+	secs := h.unp.Int()
+	h.unp.Next()
+	nans := h.unp.Int()
+	t := time.Unix(secs, nans).UTC()
+	t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local)
+	return dbtype.LocalDateTime(t)
 }
 
 func (h *hydrator) date(n uint32) interface{} {
-	panic("")
+	h.unp.Next()
+	days := h.unp.Int()
+	secs := days * 86400
+	return dbtype.Date(time.Unix(secs, 0).UTC())
 }
 
 func (h *hydrator) time(n uint32) interface{} {
-	panic("")
+	h.unp.Next()
+	nans := h.unp.Int()
+	h.unp.Next()
+	offs := h.unp.Int()
+	secs := nans / int64(time.Second)
+	nans -= secs * int64(time.Second)
+	l := time.FixedZone("Offset", int(offs))
+	t := time.Date(0, 0, 0, 0, 0, int(secs), int(nans), l)
+	return dbtype.Time(t)
 }
 
 func (h *hydrator) localTime(n uint32) interface{} {
-	panic("")
+	h.unp.Next()
+	nans := h.unp.Int()
+	secs := nans / int64(time.Second)
+	nans -= secs * int64(time.Second)
+	t := time.Date(0, 0, 0, 0, 0, int(secs), int(nans), time.Local)
+	return dbtype.LocalTime(t)
 }
 
 func (h *hydrator) duration(n uint32) interface{} {
-	panic("")
+	h.unp.Next()
+	mon := h.unp.Int()
+	h.unp.Next()
+	day := h.unp.Int()
+	h.unp.Next()
+	sec := h.unp.Int()
+	h.unp.Next()
+	nan := h.unp.Int()
+	return dbtype.Duration{Months: mon, Days: day, Seconds: sec, Nanos: int(nan)}
 }
