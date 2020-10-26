@@ -97,7 +97,6 @@ func (u *Unpacker2) Int() int64 {
 			}
 			return int64(int32(binary.BigEndian.Uint32(buf)))
 		case 8:
-			// Int, 8 bytes
 			buf := u.read(8)
 			if u.Err != nil {
 				return 0

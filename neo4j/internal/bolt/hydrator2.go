@@ -110,7 +110,7 @@ func (h *hydrator) hydrate(buf []byte) (x interface{}, err error) {
 	case msgRecord:
 		x = h.record(n)
 	default:
-		h.setErr(errors.New(fmt.Sprintf("Unexpected tag at top level: %d", t)))
+		return nil, errors.New(fmt.Sprintf("Unexpected tag at top level: %d", t))
 	}
 	err = h.getErr()
 	return
@@ -201,9 +201,11 @@ func (h *hydrator) success(n uint32) *success {
 			case "s":
 				succ.qtype = db.StatementTypeSchemaWrite
 			}
+		case "db":
+			succ.db = h.unp.String()
 		case "stats":
 			h.trash()
-			//panic("stats not implemented")
+			panic("stats not implemented")
 		case "plan":
 			h.trash()
 			panic("plan not implemented")
@@ -213,12 +215,9 @@ func (h *hydrator) success(n uint32) *success {
 		case "notifications":
 			h.trash()
 			panic("notifications not implemented")
-		case "db":
-			succ.db = h.unp.String()
 		default:
 			h.trash()
 			panic("Unhandled key" + key)
-			//return nil, hydrationInvalidState
 		}
 	}
 	return succ
@@ -226,38 +225,38 @@ func (h *hydrator) success(n uint32) *success {
 
 func (h *hydrator) strings(slice []string) []string {
 	n := h.unp.Len()
-	if slice == nil {
-		slice = make([]string, 0, n)
+	if cap(slice) >= int(n) {
+		slice = slice[:n]
+	} else {
+		slice = make([]string, n)
 	}
-	for ; n > 0; n-- {
+	for i := range slice {
 		h.unp.Next()
-		slice = append(slice, h.unp.String())
+		slice[i] = h.unp.String()
 	}
 	return slice
 }
 
-func (h *hydrator) amap() (map[string]interface{}, error) {
+func (h *hydrator) amap() map[string]interface{} {
 	n := h.unp.Len()
 	m := make(map[string]interface{}, n)
-	var err error
 	for ; n > 0; n-- {
 		h.unp.Next()
 		key := h.unp.String()
 		h.unp.Next()
-		m[key], err = h.value()
-
+		m[key] = h.value()
 	}
-	return m, err
+	return m
 }
 
-func (h *hydrator) array() ([]interface{}, error) {
+func (h *hydrator) array() []interface{} {
 	n := h.unp.Len()
 	a := make([]interface{}, n)
 	for i := range a {
 		h.unp.Next()
-		a[i], _ = h.value()
+		a[i] = h.value()
 	}
-	return a, nil
+	return a
 }
 
 func (h *hydrator) record(n uint32) *db.Record {
@@ -271,19 +270,19 @@ func (h *hydrator) record(n uint32) *db.Record {
 	rec.Values = make([]interface{}, n)
 	for i := range rec.Values {
 		h.unp.Next()
-		rec.Values[i], _ = h.value()
+		rec.Values[i] = h.value()
 	}
 	return &rec
 }
 
-func (h *hydrator) value() (interface{}, error) {
+func (h *hydrator) value() interface{} {
 	switch h.unp.Curr {
 	case packstream.PackedInt:
-		return h.unp.Int(), nil
+		return h.unp.Int()
 	case packstream.PackedFloat:
-		return h.unp.Float(), nil
+		return h.unp.Float()
 	case packstream.PackedStr:
-		return h.unp.String(), nil
+		return h.unp.String()
 	case packstream.PackedStruct:
 		t := h.unp.StructTag()
 		n := h.unp.Len()
@@ -315,22 +314,24 @@ func (h *hydrator) value() (interface{}, error) {
 		case 'E':
 			return h.duration(n)
 		default:
-			return nil, errors.New(fmt.Sprintf("Unknown tag: %02x", t))
+			h.err = errors.New(fmt.Sprintf("Unknown tag: %02x", t))
+			return nil
 		}
 	case packstream.PackedByteArray:
-		panic(1)
+		return h.unp.ByteArray()
 	case packstream.PackedArray:
 		return h.array()
 	case packstream.PackedMap:
 		return h.amap()
 	case packstream.PackedNil:
-		return nil, nil
+		return nil
 	case packstream.PackedTrue:
-		return true, nil
+		return true
 	case packstream.PackedFalse:
-		return false, nil
+		return false
 	default:
-		return nil, hydrationInvalidState
+		h.setErr(hydrationInvalidState)
+		return nil
 	}
 }
 
@@ -340,73 +341,61 @@ func (h *hydrator) trash() {
 	h.value()
 }
 
-func (h *hydrator) node(num uint32) (interface{}, error) {
-	var err error
+func (h *hydrator) node(num uint32) interface{} {
 	n := dbtype.Node{}
 	h.unp.Next()
 	n.Id = h.unp.Int()
 	h.unp.Next()
 	n.Labels = h.strings(nil)
 	h.unp.Next()
-	n.Props, err = h.amap()
-	return n, err
+	n.Props = h.amap()
+	return n
 }
 
-func (h *hydrator) relationship(n uint32) (interface{}, error) {
+func (h *hydrator) relationship(n uint32) interface{} {
 	panic("")
 }
 
-func (h *hydrator) relationnode(n uint32) (interface{}, error) {
+func (h *hydrator) relationnode(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) path(n uint32) (interface{}, error) {
+func (h *hydrator) path(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) point2d(n uint32) (interface{}, error) {
+func (h *hydrator) point2d(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) point3d(n uint32) (interface{}, error) {
+func (h *hydrator) point3d(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) dateTimeOffset(n uint32) (interface{}, error) {
+func (h *hydrator) dateTimeOffset(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) dateTimeNamedZone(n uint32) (interface{}, error) {
+func (h *hydrator) dateTimeNamedZone(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) localDateTime(n uint32) (interface{}, error) {
+func (h *hydrator) localDateTime(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) date(n uint32) (interface{}, error) {
+func (h *hydrator) date(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) time(n uint32) (interface{}, error) {
+func (h *hydrator) time(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) localTime(n uint32) (interface{}, error) {
+func (h *hydrator) localTime(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
 
-func (h *hydrator) duration(n uint32) (interface{}, error) {
+func (h *hydrator) duration(n uint32) interface{} {
 	panic("")
-	return nil, nil
 }
