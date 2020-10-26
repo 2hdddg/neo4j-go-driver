@@ -206,7 +206,10 @@ func TestBolt4(ot *testing.T) {
 		bolt, err := Connect("serverName", conn, auth, "007", nil, logger)
 		AssertNil(t, bolt)
 		AssertError(t, err)
-		dbErr := err.(*db.Neo4jError)
+		dbErr, isDbErr := err.(*db.Neo4jError)
+		if !isDbErr {
+			panic(err)
+		}
 		if !dbErr.IsAuthenticationFailed() {
 			t.Errorf("Should be authentication error: %s", dbErr)
 		}

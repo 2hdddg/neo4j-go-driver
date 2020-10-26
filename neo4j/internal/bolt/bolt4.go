@@ -81,7 +81,7 @@ type bolt4 struct {
 	serverName    string
 	chunker       *chunker
 	packer        *packstream.Packer
-	unpacker      *packstream.Unpacker
+	hydrator      hydrator
 	connId        string
 	logId         string
 	serverVersion string
@@ -103,10 +103,10 @@ func NewBolt4(serverName string, conn net.Conn, log log.Logger) *bolt4 {
 		chunker:       newChunker(),
 		receiveBuffer: make([]byte, 4096),
 		packer:        &packstream.Packer{},
-		unpacker:      &packstream.Unpacker{},
-		birthDate:     time.Now(),
-		log:           log,
-		streams:       openstreams{},
+		//unpacker:      &packstream.Unpacker{},
+		birthDate: time.Now(),
+		log:       log,
+		streams:   openstreams{},
 	}
 	// Setup open streams. Errors reported to callback are assertion like errors, let them
 	// bubble up to kill them off when they happen, alternatively they could be logged.
@@ -209,21 +209,23 @@ func (b *bolt4) receiveMsg() interface{} {
 		return nil
 	}
 
-	msg, err := b.unpacker.UnpackStruct(b.receiveBuffer, hydrate)
+	msg, err := (&b.hydrator).hydrate(b.receiveBuffer)
+
+	//msg, err := b.unpacker.UnpackStruct(b.receiveBuffer, hydrate)
 	b.setError(err, true)
 	return msg
 }
 
 // Receives a message that is assumed to be a success response or a failure in response to a
 // sent command. Sets b.err and b.state on failure
-func (b *bolt4) receiveSuccess() *successResponse {
+func (b *bolt4) receiveSuccess() *success {
 	msg := b.receiveMsg()
 	if b.err != nil {
 		return nil
 	}
 
 	switch v := msg.(type) {
-	case *successResponse:
+	case *success:
 		return v
 	case *db.Neo4jError:
 		b.setError(v, false)
@@ -262,18 +264,13 @@ func (b *bolt4) connect(minor int, auth map[string]interface{}, userAgent string
 
 	// Send hello message and wait for confirmation
 	b.sendMsg(msgHello, hello)
-	successResponse := b.receiveSuccess()
+	succ := b.receiveSuccess()
 	if b.err != nil {
 		return b.err
 	}
 
-	helloResponse := successResponse.hello()
-	if helloResponse == nil {
-		b.setError(errors.New(fmt.Sprintf("Unexpected server response: %+v", successResponse)), true)
-		return b.err
-	}
-	b.connId = helloResponse.connectionId
-	b.serverVersion = helloResponse.server
+	b.connId = succ.connectionId
+	b.serverVersion = succ.server
 
 	// Construct log identity
 	b.logId = fmt.Sprintf("%s@%s", b.connId, b.serverName)
@@ -380,15 +377,14 @@ func (b *bolt4) TxCommit(txh db.TxHandle) error {
 
 	// Send request to server to commit
 	b.sendMsg(msgCommit)
-	succRes := b.receiveSuccess()
+	succ := b.receiveSuccess()
 	if b.err != nil {
 		return b.err
 	}
 	// Keep track of bookmark
 	// Parsing assumed not to fail
-	commitSuccess := succRes.commit()
-	if len(commitSuccess.bookmark) > 0 {
-		b.bookmark = commitSuccess.bookmark
+	if len(succ.bookmark) > 0 {
+		b.bookmark = succ.bookmark
 	}
 
 	// Transition into ready state
@@ -573,19 +569,14 @@ func (b *bolt4) run(cypher string, params map[string]interface{}, fetchSize int,
 	}
 
 	// Receive confirmation of run message
-	res := b.receiveSuccess()
+	succ := b.receiveSuccess()
 	if b.err != nil {
 		// If failed with a database error, there will be an ignored response for the
 		// pull message as well, this will be cleaned up by Reset
 		return nil, b.err
 	}
 	// Extract the RUN response from success response
-	runRes := res.run()
-	if runRes == nil {
-		b.setError(errors.New(fmt.Sprintf("Failed to parse RUN response: %+v", res)), true)
-		return nil, b.err
-	}
-	b.tfirst = runRes.t_first
+	b.tfirst = succ.tfirst
 	// Change state to streaming
 	if b.state == bolt4_ready {
 		b.state = bolt4_streaming
@@ -594,7 +585,7 @@ func (b *bolt4) run(cypher string, params map[string]interface{}, fetchSize int,
 	}
 
 	// Create a stream representation, set it to current and track it
-	stream := &stream{keys: runRes.fields, qid: runRes.qid, fetchSize: fetchSize}
+	stream := &stream{keys: succ.fields, qid: succ.qid, fetchSize: fetchSize}
 	(&b.streams).attach(stream)
 
 	return stream, nil
@@ -775,9 +766,9 @@ func (b *bolt4) receiveNext() (*db.Record, bool, *db.Summary) {
 		// A new record
 		x.Keys = b.streams.curr.keys
 		return x, false, nil
-	case *successResponse:
+	case *success:
 		// End of batch or end of stream?
-		if x.hasMore() {
+		if x.hasMore {
 			// End of batch
 			return nil, true, nil
 		}
@@ -795,6 +786,7 @@ func (b *bolt4) receiveNext() (*db.Record, bool, *db.Summary) {
 		return nil, false, nil
 	default:
 		// Unknown territory
+		fmt.Println("Unknown", x)
 		b.setError(errors.New("Unknown response"), true)
 		return nil, false, nil
 	}
@@ -843,11 +835,10 @@ func (b *bolt4) Reset() {
 			return
 		}
 		switch x := msg.(type) {
-		case *ignoredResponse, *db.Record:
+		case *ignored, *db.Record:
 			// Command ignored
-		case *successResponse:
-			// Reset success are always empty, none of the other responses are.
-			if len(x.meta) == 0 {
+		case *success:
+			if x.isResetResponse() {
 				// Reset confirmed
 				b.state = bolt4_ready
 				return

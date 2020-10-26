@@ -21,12 +21,10 @@ func (e *UnsupportedTypeError) Error() string {
 	return fmt.Sprintf("Packing of type '%s' is not supported", e.t.String())
 }
 
-type IoError struct {
-	inner error
-}
+type IoError struct{}
 
 func (e *IoError) Error() string {
-	return fmt.Sprintf("IO error: %s", e.inner)
+	return "IO error"
 }
 
 type IllegalFormatError struct {
@@ -34,5 +32,13 @@ type IllegalFormatError struct {
 }
 
 func (e *IllegalFormatError) Error() string {
+	return e.msg
+}
+
+type UnpackError struct {
+	msg string
+}
+
+func (e *UnpackError) Error() string {
 	return e.msg
 }
