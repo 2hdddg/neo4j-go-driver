@@ -36,9 +36,8 @@ func (u *Unpacker2) Reset(buf []byte) {
 	u.off = 0
 	u.len = uint32(len(buf))
 	u.Err = nil
-	//u.mrk.typ = PackedUndef
-	//	u.Curr = PackedUndef
-	u.Next()
+	u.mrk.typ = PackedUndef
+	u.Curr = PackedUndef
 }
 
 func (u *Unpacker2) setErr(err error) {
@@ -80,11 +79,12 @@ func (u *Unpacker2) Int() int64 {
 	case 4:
 		i = int64(int32(binary.BigEndian.Uint32(u.buf[u.off:])))
 	case 8:
-		i = int64(binary.BigEndian.Uint64(u.buf))
+		i = int64(binary.BigEndian.Uint64(u.buf[u.off:]))
 	default:
 		u.setErr(&UnpackError{msg: fmt.Sprintf("Illegal int length: %d", n)})
 		return 0
 	}
+	u.off = end
 	return i
 }
 
@@ -102,7 +102,9 @@ func (u *Unpacker2) StructTag() byte {
 
 func (u *Unpacker2) String() string {
 	n := uint32(u.mrk.numlenbytes)
-	if n != 0 {
+	if n == 0 {
+		n = uint32(u.mrk.shortlen)
+	} else {
 		n = u.readlen(n)
 	}
 	return string(u.read(n))
@@ -162,9 +164,9 @@ func (u *Unpacker2) readlen(n uint32) uint32 {
 	case 1:
 		l = uint32(u.buf[u.off])
 	case 2:
-		l = uint32(binary.BigEndian.Uint16(u.buf))
+		l = uint32(binary.BigEndian.Uint16(u.buf[u.off:]))
 	case 4:
-		l = uint32(binary.BigEndian.Uint32(u.buf))
+		l = uint32(binary.BigEndian.Uint32(u.buf[u.off:]))
 	default:
 		u.setErr(&UnpackError{msg: fmt.Sprintf("Illegal length: %d (%d)", n, u.Curr)})
 	}
@@ -174,33 +176,33 @@ func (u *Unpacker2) readlen(n uint32) uint32 {
 
 type marker struct {
 	typ         int
-	shortlen    byte
+	shortlen    int8
 	numlenbytes byte
 }
 
-var markers [0xff]marker
+var markers [0x100]marker
 
 func init() {
 	i := 0
 	// Tiny int
 	for ; i < 0x80; i++ {
-		markers[i] = marker{typ: PackedInt, shortlen: byte(i)}
+		markers[i] = marker{typ: PackedInt, shortlen: int8(i)}
 	}
 	// Tiny string
 	for ; i < 0x90; i++ {
-		markers[i] = marker{typ: PackedStr, shortlen: byte(i - 0x80)}
+		markers[i] = marker{typ: PackedStr, shortlen: int8(i - 0x80)}
 	}
 	// Tiny array
 	for ; i < 0xa0; i++ {
-		markers[i] = marker{typ: PackedArray, shortlen: byte(i - 0x90)}
+		markers[i] = marker{typ: PackedArray, shortlen: int8(i - 0x90)}
 	}
 	// Tiny map
 	for ; i < 0xb0; i++ {
-		markers[i] = marker{typ: PackedMap, shortlen: byte(i - 0xa0)}
+		markers[i] = marker{typ: PackedMap, shortlen: int8(i - 0xa0)}
 	}
 	// Struct
 	for ; i < 0xc0; i++ {
-		markers[i] = marker{typ: PackedStruct, shortlen: byte(i - 0xb0)}
+		markers[i] = marker{typ: PackedStruct, shortlen: int8(i - 0xb0)}
 	}
 
 	markers[0xc0] = marker{typ: PackedNil}
@@ -228,4 +230,8 @@ func init() {
 	markers[0xd8] = marker{typ: PackedMap, numlenbytes: 1}
 	markers[0xd9] = marker{typ: PackedMap, numlenbytes: 2}
 	markers[0xda] = marker{typ: PackedMap, numlenbytes: 4}
+
+	for i = 0xf0; i < 0x100; i++ {
+		markers[i] = marker{typ: PackedInt, shortlen: int8(i - 0x100)}
+	}
 }

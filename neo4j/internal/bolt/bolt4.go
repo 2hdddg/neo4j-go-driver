@@ -786,7 +786,6 @@ func (b *bolt4) receiveNext() (*db.Record, bool, *db.Summary) {
 		return nil, false, nil
 	default:
 		// Unknown territory
-		fmt.Println("Unknown", x)
 		b.setError(errors.New("Unknown response"), true)
 		return nil, false, nil
 	}

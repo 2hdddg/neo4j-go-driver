@@ -53,7 +53,13 @@ type success struct {
 
 func (s *success) summary() *db.Summary {
 	return &db.Summary{
-		Bookmark: s.bookmark,
+		Bookmark:      s.bookmark,
+		StmntType:     s.qtype,
+		Counters:      s.counters,
+		TLast:         s.tlast,
+		Plan:          s.plan,
+		ProfiledPlan:  s.profile,
+		Notifications: s.notifications,
 	}
 }
 
@@ -205,8 +211,7 @@ func (h *hydrator) success(n uint32) *success {
 		case "db":
 			succ.db = h.unp.String()
 		case "stats":
-			h.trash()
-			//panic("stats not implemented")
+			succ.counters = h.successStats()
 		case "plan":
 			h.trash()
 			panic("plan not implemented")
@@ -222,6 +227,22 @@ func (h *hydrator) success(n uint32) *success {
 		}
 	}
 	return succ
+}
+
+func (h *hydrator) successStats() map[string]int {
+	n := h.unp.Len()
+	if n == 0 {
+		return nil
+	}
+	counts := make(map[string]int, n)
+	for ; n > 0; n-- {
+		h.unp.Next()
+		key := h.unp.String()
+		h.unp.Next()
+		val := h.unp.Int()
+		counts[key] = int(val)
+	}
+	return counts
 }
 
 func (h *hydrator) strings() []string {
@@ -339,6 +360,10 @@ func (h *hydrator) trash() {
 }
 
 func (h *hydrator) node(num uint32) interface{} {
+	h.assertLength(3, num)
+	if h.getErr() != nil {
+		return nil
+	}
 	n := dbtype.Node{}
 	h.unp.Next()
 	n.Id = h.unp.Int()
@@ -350,6 +375,10 @@ func (h *hydrator) node(num uint32) interface{} {
 }
 
 func (h *hydrator) relationship(n uint32) interface{} {
+	h.assertLength(5, n)
+	if h.getErr() != nil {
+		return nil
+	}
 	r := dbtype.Relationship{}
 	h.unp.Next()
 	r.Id = h.unp.Int()
@@ -358,11 +387,17 @@ func (h *hydrator) relationship(n uint32) interface{} {
 	h.unp.Next()
 	r.EndId = h.unp.Int()
 	h.unp.Next()
+	r.Type = h.unp.String()
+	h.unp.Next()
 	r.Props = h.amap()
 	return r
 }
 
 func (h *hydrator) relationnode(n uint32) interface{} {
+	h.assertLength(3, n)
+	if h.getErr() != nil {
+		return nil
+	}
 	r := relNode{}
 	h.unp.Next()
 	r.id = h.unp.Int()
@@ -374,6 +409,10 @@ func (h *hydrator) relationnode(n uint32) interface{} {
 }
 
 func (h *hydrator) path(n uint32) interface{} {
+	h.assertLength(3, n)
+	if h.getErr() != nil {
+		return nil
+	}
 	// Array of nodes
 	h.unp.Next()
 	num := h.unp.Int()

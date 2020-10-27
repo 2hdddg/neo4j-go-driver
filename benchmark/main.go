@@ -207,7 +207,7 @@ func getS18(driver neo4j18.Driver, n int) {
 func main() {
 	driver, err := neo4j.NewDriver(os.Args[1], neo4j.BasicAuth(os.Args[2], os.Args[3], ""),
 	func(c *neo4j.Config) {
-		c.Log = neo4j.ConsoleLogger(neo4j.DEBUG)
+		//c.Log = neo4j.ConsoleLogger(neo4j.DEBUG)
 	})
 	if err != nil {
 		panic(err)

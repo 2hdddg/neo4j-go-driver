@@ -38,6 +38,7 @@ type testHydratorMock struct {
 }
 
 func unpack(u *Unpacker2) interface{} {
+	u.Next()
 	switch u.Curr {
 	case PackedInt:
 		return u.Int()
@@ -59,22 +60,28 @@ func unpack(u *Unpacker2) interface{} {
 		for i := range a {
 			a[i] = unpack(u)
 		}
+		return a
 	case PackedMap:
 		l := u.Len()
 		m := make(map[string]interface{}, l)
 		for i := uint32(0); i < l; i++ {
 			u.Next()
 			k := u.String()
-			u.Next()
 			m[k] = unpack(u)
 		}
+		return m
 	case PackedStruct:
+		t := u.StructTag()
 		l := u.Len()
-		s := Struct{Tag: StructTag(u.StructTag()), Fields: make([]interface{}, l)}
+		s := Struct{Tag: StructTag(t)}
+		if l == 0 {
+			return &s
+		}
+		s.Fields = make([]interface{}, l)
 		for i := range s.Fields {
-			u.Next()
 			s.Fields[i] = unpack(u)
 		}
+		return &s
 	default:
 
 		//panic(fmt.Sprintf("Unhandled Curr: %d", u.Curr))
@@ -596,7 +603,6 @@ func TestPackStream(ot *testing.T) {
 		ot.Run(fmt.Sprintf("Unpacking2 of %s", c.name), func(t *testing.T) {
 			u := &Unpacker2{}
 			u.Reset(c.expectPacked)
-
 			// Use the unpacker as intended to unpack something generic
 			x := unpack(u)
 			if u.Err != nil {
