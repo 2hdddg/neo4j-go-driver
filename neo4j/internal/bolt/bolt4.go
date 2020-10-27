@@ -210,8 +210,6 @@ func (b *bolt4) receiveMsg() interface{} {
 	}
 
 	msg, err := (&b.hydrator).hydrate(b.receiveBuffer)
-
-	//msg, err := b.unpacker.UnpackStruct(b.receiveBuffer, hydrate)
 	b.setError(err, true)
 	return msg
 }

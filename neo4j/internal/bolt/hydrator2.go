@@ -222,8 +222,8 @@ func (h *hydrator) success(n uint32) *success {
 			h.trash()
 			panic("notifications not implemented")
 		default:
+			// Unknown key, waste it
 			h.trash()
-			panic("Unhandled key" + key)
 		}
 	}
 	return succ
