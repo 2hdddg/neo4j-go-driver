@@ -157,7 +157,7 @@ func (h *hydrator) success(n uint32) *success {
 	// Use cached success
 	succ := &h.cachedSuccess
 	// Reset cached success
-	succ.fields = succ.fields[:0]
+	succ.fields = nil
 	succ.bookmark = ""
 	succ.hasMore = false
 	succ.notifications = nil
@@ -176,7 +176,7 @@ func (h *hydrator) success(n uint32) *success {
 		h.unp.Next()
 		switch key {
 		case "fields":
-			succ.fields = h.strings(succ.fields)
+			succ.fields = h.strings()
 		case "t_first":
 			succ.tfirst = h.unp.Int()
 		case "qid":
@@ -224,13 +224,9 @@ func (h *hydrator) success(n uint32) *success {
 	return succ
 }
 
-func (h *hydrator) strings(slice []string) []string {
+func (h *hydrator) strings() []string {
 	n := h.unp.Len()
-	if cap(slice) >= int(n) {
-		slice = slice[:n]
-	} else {
-		slice = make([]string, n)
-	}
+	slice := make([]string, n)
 	for i := range slice {
 		h.unp.Next()
 		slice[i] = h.unp.String()
@@ -347,7 +343,7 @@ func (h *hydrator) node(num uint32) interface{} {
 	h.unp.Next()
 	n.Id = h.unp.Int()
 	h.unp.Next()
-	n.Labels = h.strings(nil)
+	n.Labels = h.strings()
 	h.unp.Next()
 	n.Props = h.amap()
 	return n

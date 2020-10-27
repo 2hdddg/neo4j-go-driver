@@ -37,6 +37,51 @@ type testHydratorMock struct {
 	err           error
 }
 
+func unpack(u *Unpacker2) interface{} {
+	switch u.Curr {
+	case PackedInt:
+		return u.Int()
+	case PackedFloat:
+		return u.Float()
+	case PackedStr:
+		return u.String()
+	case PackedByteArray:
+		return u.ByteArray()
+	case PackedNil:
+		return nil
+	case PackedTrue:
+		return true
+	case PackedFalse:
+		return false
+	case PackedArray:
+		l := u.Len()
+		a := make([]interface{}, l)
+		for i := range a {
+			a[i] = unpack(u)
+		}
+	case PackedMap:
+		l := u.Len()
+		m := make(map[string]interface{}, l)
+		for i := uint32(0); i < l; i++ {
+			u.Next()
+			k := u.String()
+			u.Next()
+			m[k] = unpack(u)
+		}
+	case PackedStruct:
+		l := u.Len()
+		s := Struct{Tag: StructTag(u.StructTag()), Fields: make([]interface{}, l)}
+		for i := range s.Fields {
+			u.Next()
+			s.Fields[i] = unpack(u)
+		}
+	default:
+
+		//panic(fmt.Sprintf("Unhandled Curr: %d", u.Curr))
+	}
+	return nil
+}
+
 func (m *testHydratorMock) hydrate(tag StructTag, fields []interface{}) (interface{}, error) {
 	if m.err != nil {
 		return nil, m.err
@@ -108,7 +153,7 @@ func TestPackStream(ot *testing.T) {
 
 	genStr := func(l int) (string, []byte) {
 		b := make([]byte, l)
-		for i, _ := range b {
+		for i := range b {
 			b[i] = byte('a')
 		}
 		return string(b), b
@@ -123,7 +168,7 @@ func TestPackStream(ot *testing.T) {
 
 	genByt := func(l int) []byte {
 		b := make([]byte, l)
-		for i, _ := range b {
+		for i := range b {
 			b[i] = 0x3f
 		}
 		return b
@@ -136,7 +181,7 @@ func TestPackStream(ot *testing.T) {
 
 	genArr := func(l int) []int16 {
 		b := make([]int16, l)
-		for i, _ := range b {
+		for i := range b {
 			b[i] = 1
 		}
 		return b
@@ -546,6 +591,21 @@ func TestPackStream(ot *testing.T) {
 			if !reflect.DeepEqual(x, c.expectUnpacked) {
 				t.Errorf("Unpacked differs, expected %+v (%T) but was %+v (%T)", c.expectUnpacked, c.expectUnpacked, x, x)
 			}
+		})
+
+		ot.Run(fmt.Sprintf("Unpacking2 of %s", c.name), func(t *testing.T) {
+			u := &Unpacker2{}
+			u.Reset(c.expectPacked)
+
+			// Use the unpacker as intended to unpack something generic
+			x := unpack(u)
+			if u.Err != nil {
+				t.Fatalf("Unable to unpack: %s", u.Err)
+			}
+			if !reflect.DeepEqual(x, c.expectUnpacked) {
+				t.Errorf("Unpacked differs, expected %+v (%T) but was %+v (%T)", c.expectUnpacked, c.expectUnpacked, x, x)
+			}
+
 		})
 	}
 

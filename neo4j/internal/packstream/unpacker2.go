@@ -36,8 +36,9 @@ func (u *Unpacker2) Reset(buf []byte) {
 	u.off = 0
 	u.len = uint32(len(buf))
 	u.Err = nil
-	u.mrk.typ = PackedUndef
-	u.Curr = PackedUndef
+	//u.mrk.typ = PackedUndef
+	//	u.Curr = PackedUndef
+	u.Next()
 }
 
 func (u *Unpacker2) setErr(err error) {
@@ -53,61 +54,38 @@ func (u *Unpacker2) Next() {
 }
 
 func (u *Unpacker2) Len() uint32 {
-	n := u.mrk.numlenbytes
-	if n > 0 {
-		switch n {
-		case 1:
-			return uint32(u.pop())
-		case 2:
-			buf := u.read(2)
-			if u.Err != nil {
-				return 0
-			}
-			return uint32(binary.BigEndian.Uint16(buf))
-		case 4:
-			buf := u.read(4)
-			if u.Err != nil {
-				return 0
-			}
-			return binary.BigEndian.Uint32(buf)
-		default:
-			u.setErr(&UnpackError{msg: fmt.Sprintf("Illegal length: %d (%d)", n, u.Curr)})
-			return 0
-		}
+	if u.mrk.numlenbytes == 0 {
+		return uint32(u.mrk.shortlen)
 	}
-	return uint32(u.mrk.shortlen)
+	return u.readlen(uint32(u.mrk.numlenbytes))
 }
 
 func (u *Unpacker2) Int() int64 {
 	n := u.mrk.numlenbytes
-	if n > 0 {
-		switch n {
-		case 1:
-			return int64(int8(u.pop()))
-		case 2:
-			buf := u.read(2)
-			if u.Err != nil {
-				return 0
-			}
-			return int64(int16(binary.BigEndian.Uint16(buf)))
-		case 4:
-			buf := u.read(4)
-			if u.Err != nil {
-				return 0
-			}
-			return int64(int32(binary.BigEndian.Uint32(buf)))
-		case 8:
-			buf := u.read(8)
-			if u.Err != nil {
-				return 0
-			}
-			return int64(binary.BigEndian.Uint64(buf))
-		default:
-			u.setErr(&UnpackError{msg: fmt.Sprintf("Illegal int length: %d", n)})
-			return 0
-		}
+	if n == 0 {
+		return int64(u.mrk.shortlen)
 	}
-	return int64(u.mrk.shortlen)
+
+	end := u.off + uint32(n)
+	if end > u.len {
+		u.setErr(&IoError{})
+		return 0
+	}
+	i := int64(0)
+	switch n {
+	case 1:
+		i = int64(int8(u.buf[u.off]))
+	case 2:
+		i = int64(int16(binary.BigEndian.Uint16(u.buf[u.off:])))
+	case 4:
+		i = int64(int32(binary.BigEndian.Uint32(u.buf[u.off:])))
+	case 8:
+		i = int64(binary.BigEndian.Uint64(u.buf))
+	default:
+		u.setErr(&UnpackError{msg: fmt.Sprintf("Illegal int length: %d", n)})
+		return 0
+	}
+	return i
 }
 
 func (u *Unpacker2) Float() float64 {
@@ -123,11 +101,11 @@ func (u *Unpacker2) StructTag() byte {
 }
 
 func (u *Unpacker2) String() string {
-	buf := u.read(u.Len())
-	if u.Err != nil {
-		return ""
+	n := uint32(u.mrk.numlenbytes)
+	if n != 0 {
+		n = u.readlen(n)
 	}
-	return string(buf)
+	return string(u.read(n))
 }
 
 func (u *Unpacker2) Bool() bool {
@@ -138,15 +116,14 @@ func (u *Unpacker2) Bool() bool {
 		return false
 	default:
 		u.setErr(&UnpackError{msg: "Illegal value for bool"})
+		return false
 	}
-	return false
 }
 
 func (u *Unpacker2) ByteArray() []byte {
 	n := u.Len()
 	buf := u.read(n)
 	if u.Err != nil || n == 0 {
-		return nil
 	}
 	out := make([]byte, n)
 	copy(out, buf)
@@ -168,10 +145,31 @@ func (u *Unpacker2) read(n uint32) []byte {
 	end := u.off + n
 	if end > u.len {
 		u.setErr(&IoError{})
-		return nil
+		return []byte{}
 	}
 	u.off = end
 	return u.buf[start:end]
+}
+
+func (u *Unpacker2) readlen(n uint32) uint32 {
+	end := u.off + n
+	if end > u.len {
+		u.setErr(&IoError{})
+		return 0
+	}
+	l := uint32(0)
+	switch n {
+	case 1:
+		l = uint32(u.buf[u.off])
+	case 2:
+		l = uint32(binary.BigEndian.Uint16(u.buf))
+	case 4:
+		l = uint32(binary.BigEndian.Uint32(u.buf))
+	default:
+		u.setErr(&UnpackError{msg: fmt.Sprintf("Illegal length: %d (%d)", n, u.Curr)})
+	}
+	u.off = end
+	return l
 }
 
 type marker struct {
