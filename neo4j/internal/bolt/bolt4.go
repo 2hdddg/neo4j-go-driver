@@ -103,10 +103,9 @@ func NewBolt4(serverName string, conn net.Conn, log log.Logger) *bolt4 {
 		chunker:       newChunker(),
 		receiveBuffer: make([]byte, 4096),
 		packer:        &packstream.Packer{},
-		//unpacker:      &packstream.Unpacker{},
-		birthDate: time.Now(),
-		log:       log,
-		streams:   openstreams{},
+		birthDate:     time.Now(),
+		log:           log,
+		streams:       openstreams{},
 	}
 	// Setup open streams. Errors reported to callback are assertion like errors, let them
 	// bubble up to kill them off when they happen, alternatively they could be logged.
@@ -380,7 +379,6 @@ func (b *bolt4) TxCommit(txh db.TxHandle) error {
 		return b.err
 	}
 	// Keep track of bookmark
-	// Parsing assumed not to fail
 	if len(succ.bookmark) > 0 {
 		b.bookmark = succ.bookmark
 	}
