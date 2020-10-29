@@ -43,7 +43,7 @@ func dechunkMessage(rd io.Reader, msgBuf []byte) ([]byte, error) {
 
 		// Need to expand buffer
 		if (off + chunkSize) > cap(msgBuf) {
-			msgBuf = append(msgBuf, make([]byte, chunkSize)...)
+			msgBuf = append(msgBuf, make([]byte, off+chunkSize)...)
 		}
 		// Read the chunk into buffer
 		_, err = io.ReadFull(rd, msgBuf[off:(off+chunkSize)])
