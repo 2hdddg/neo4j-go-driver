@@ -119,7 +119,7 @@ func (h *hydrator) hydrate(buf []byte) (x interface{}, err error) {
 	h.unp.Next()
 
 	if h.unp.Curr != packstream.PackedStruct {
-		return nil, errors.New(fmt.Sprintf("Unexpected curr: %d", h.unp.Curr))
+		return nil, errors.New(fmt.Sprintf("Expected struct"))
 	}
 
 	n := h.unp.Len()
@@ -436,6 +436,7 @@ func (h *hydrator) path(n uint32) interface{} {
 		}
 		nodes[i] = node
 	}
+	fmt.Println(nodes)
 	// Array of relnodes
 	h.unp.Next()
 	num = h.unp.Int()
@@ -449,6 +450,7 @@ func (h *hydrator) path(n uint32) interface{} {
 		}
 		rnodes[i] = rnode
 	}
+	fmt.Println(rnodes)
 	// Array of indexes
 	h.unp.Next()
 	num = h.unp.Int()

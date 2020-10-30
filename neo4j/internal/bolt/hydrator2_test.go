@@ -243,6 +243,129 @@ func TestHydrator2(ot *testing.T) {
 				dbtype.Duration{Months: 12, Days: 31, Seconds: 59, Nanos: 10001},
 			}},
 		},
+		{
+			name: "Record with node",
+			build: func() {
+				packer.StructHeader(byte(msgRecord), 1)
+				packer.ArrayHeader(1)
+				packer.StructHeader('N', 3)
+				packer.Int64(19000)
+				packer.ArrayHeader(3)
+				packer.String("lbl1")
+				packer.String("lbl2")
+				packer.String("lbl3")
+				packer.MapHeader(2)
+				packer.String("key1")
+				packer.Int8(7)
+				packer.String("key2")
+				packer.ArrayHeader(2)
+				packer.StructHeader('X', 3) // Point2D
+				packer.Int64(1)             //
+				packer.Float64(7.123)       //
+				packer.Float64(123.7)       //
+				packer.StructHeader('X', 3) // Point2D
+				packer.Int64(2)             //
+				packer.Float64(7.123)       //
+				packer.Float64(123.7)       //
+			},
+			x: &db.Record{Values: []interface{}{
+				dbtype.Node{
+					Id:     19000,
+					Labels: []string{"lbl1", "lbl2", "lbl3"},
+					Props: map[string]interface{}{
+						"key1": int64(7),
+						"key2": []interface{}{
+							dbtype.Point2D{SpatialRefId: 1, X: 7.123, Y: 123.7},
+							dbtype.Point2D{SpatialRefId: 2, X: 7.123, Y: 123.7},
+						},
+					}},
+			}},
+		},
+		{
+			name: "Record with relationship",
+			build: func() {
+				packer.StructHeader(byte(msgRecord), 1)
+				packer.ArrayHeader(1)
+				packer.StructHeader('R', 5)
+				packer.Int64(19000)
+				packer.Int64(19001)
+				packer.Int64(1000)
+				packer.String("lbl")
+				packer.MapHeader(2)
+				packer.String("key1")
+				packer.Int8(7)
+				packer.String("key2")
+				packer.ArrayHeader(2)
+				packer.StructHeader('X', 3) // Point2D
+				packer.Int64(1)             //
+				packer.Float64(7.123)       //
+				packer.Float64(123.7)       //
+				packer.StructHeader('X', 3) // Point2D
+				packer.Int64(2)             //
+				packer.Float64(7.123)       //
+				packer.Float64(123.7)       //
+			},
+			x: &db.Record{Values: []interface{}{
+				dbtype.Relationship{
+					Id:      19000,
+					StartId: 19001,
+					EndId:   1000,
+					Type:    "lbl",
+					Props: map[string]interface{}{
+						"key1": int64(7),
+						"key2": []interface{}{
+							dbtype.Point2D{SpatialRefId: 1, X: 7.123, Y: 123.7},
+							dbtype.Point2D{SpatialRefId: 2, X: 7.123, Y: 123.7},
+						},
+					}},
+			}},
+		},
+		{
+			name: "Record with path",
+			build: func() {
+				packer.StructHeader(byte(msgRecord), 1)
+				packer.ArrayHeader(1)
+				packer.StructHeader('P', 3)
+				// Two nodes
+				packer.ArrayHeader(2)
+				packer.StructHeader('N', 3) // Node 1
+				packer.Int64(3)
+				packer.ArrayHeader(1)
+				packer.String("lbl1")
+				packer.MapHeader(1)
+				packer.String("key1")
+				packer.Int8(7)
+				packer.StructHeader('N', 3) // Node 2
+				packer.Int64(7)
+				packer.ArrayHeader(1)
+				packer.String("lbl2")
+				packer.MapHeader(1)
+				packer.String("key2")
+				packer.Int8(9)
+				// Relation node
+				packer.ArrayHeader(1)
+				packer.StructHeader('r', 3)
+				packer.Int(9)
+				packer.String("x")
+				packer.MapHeader(1)
+				packer.String("akey")
+				packer.String("aval")
+				// Path
+				packer.ArrayHeader(2)
+				packer.Int(1)
+				packer.Int(1)
+			},
+			x: &db.Record{Values: []interface{}{
+				dbtype.Path{
+					Nodes: []dbtype.Node{
+						{Id: 3, Labels: []string{"lbl1"}, Props: map[string]interface{}{"key1": int64(7)}},
+						{Id: 7, Labels: []string{"lbl2"}, Props: map[string]interface{}{"key2": int64(9)}},
+					},
+					Relationships: []dbtype.Relationship{
+						{Id: 9, StartId: 3, EndId: 7, Type: "x", Props: map[string]interface{}{"akey": "aval"}},
+					}},
+			}},
+		},
 
 		// TODO: Records: temporal data types, maps of things, node, path, relationship
 	}
