@@ -366,8 +366,6 @@ func TestHydrator2(ot *testing.T) {
 					}},
 			}},
 		},
-
-		// TODO: Records: temporal data types, maps of things, node, path, relationship
 	}
 
 	// Shared among calls in real usage so we do the same while testing it.
