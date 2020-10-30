@@ -93,6 +93,7 @@ func (p *Packer2) Int(i int) {
 }
 
 func (p *Packer2) Uint64(i uint64) {
+	p.checkOverflowInt(i)
 	p.Int64(int64(i))
 }
 
@@ -190,10 +191,8 @@ func (p *Packer2) Nil() {
 	p.buf = append(p.buf, 0xc0)
 }
 
-/*
 func (p *Packer2) checkOverflowInt(i uint64) {
 	if i > math.MaxInt64 {
 		p.err = &OverflowError{msg: "Trying to pack uint64 that doesn't fit into int64"}
 	}
 }
-*/

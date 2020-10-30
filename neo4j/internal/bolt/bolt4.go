@@ -79,8 +79,7 @@ type bolt4 struct {
 	streams       openstreams
 	conn          net.Conn
 	serverName    string
-	chunker       *chunker
-	packer        *packstream.Packer
+	out           *outgoing
 	hydrator      hydrator
 	connId        string
 	logId         string
@@ -100,12 +99,15 @@ func NewBolt4(serverName string, conn net.Conn, log log.Logger) *bolt4 {
 		state:         bolt4_unauthorized,
 		conn:          conn,
 		serverName:    serverName,
-		chunker:       newChunker(),
 		receiveBuffer: make([]byte, 4096),
-		packer:        &packstream.Packer{},
 		birthDate:     time.Now(),
 		log:           log,
 		streams:       openstreams{},
+	}
+	b.out = &outgoing{
+		chunker: newChunker(),
+		packer:  &packstream.Packer2{},
+		onErr:   func(err error) { b.setError(err, true) },
 	}
 	// Setup open streams. Errors reported to callback are assertion like errors, let them
 	// bubble up to kill them off when they happen, alternatively they could be logged.
@@ -169,29 +171,6 @@ func (b *bolt4) setError(err error, fatal bool) {
 	} else {
 		b.log.Error(log.Bolt4, b.logId, err)
 	}
-}
-
-func (b *bolt4) appendMsg(tag packstream.StructTag, field ...interface{}) {
-	b.chunker.beginMessage()
-	// Setup the message and let packstream write the packed bytes to the chunk
-	var err error
-	b.chunker.buf, err = b.packer.PackStruct(b.chunker.buf, dehydrate, tag, field...)
-	if err != nil {
-		// At this point we do not know the state of what has been written to the chunks.
-		// Either we should support rolling back whatever that has been written or just
-		// bail out this session.
-		b.setError(err, true)
-		return
-	}
-	b.chunker.endMessage()
-}
-
-func (b *bolt4) sendMsg(tag packstream.StructTag, field ...interface{}) {
-	if b.appendMsg(tag, field...); b.err != nil {
-		return
-	}
-	err := b.chunker.send(b.conn)
-	b.setError(err, true)
 }
 
 func (b *bolt4) receiveMsg() interface{} {
@@ -260,7 +239,8 @@ func (b *bolt4) connect(minor int, auth map[string]interface{}, userAgent string
 	}
 
 	// Send hello message and wait for confirmation
-	b.sendMsg(msgHello, hello)
+	b.out.appendHello(hello)
+	b.out.send(b.conn)
 	succ := b.receiveSuccess()
 	if b.err != nil {
 		return b.err
@@ -304,7 +284,8 @@ func (b *bolt4) TxBegin(txConfig db.TxConfig) (db.TxHandle, error) {
 	// If there are bookmarks, begin the transaction immediately for backwards compatible
 	// reasons, otherwise delay it to save a round-trip
 	if len(tx.bookmarks) > 0 {
-		b.sendMsg(msgBegin, tx.toMeta())
+		b.out.appendBegin(tx.toMeta())
+		b.out.send(b.conn)
 		b.receiveSuccess()
 		if b.err != nil {
 			return 0, b.err
@@ -373,7 +354,8 @@ func (b *bolt4) TxCommit(txh db.TxHandle) error {
 	}
 
 	// Send request to server to commit
-	b.sendMsg(msgCommit)
+	b.out.appendCommit()
+	b.out.send(b.conn)
 	succ := b.receiveSuccess()
 	if b.err != nil {
 		return b.err
@@ -412,7 +394,8 @@ func (b *bolt4) TxRollback(txh db.TxHandle) error {
 	}
 
 	// Send rollback request to server
-	b.sendMsg(msgRollback)
+	b.out.appendRollback()
+	b.out.send(b.conn)
 	if b.receiveSuccess(); b.err != nil {
 		return b.err
 	}
@@ -436,7 +419,8 @@ func (b *bolt4) discardStream() {
 		_, batch, sum := b.receiveNext()
 		if batch {
 			stream.fetchSize = -1
-			b.sendMsg(msgDiscardN, map[string]interface{}{"n": stream.fetchSize, "qid": stream.qid})
+			b.out.appendDiscardNQid(stream.fetchSize, stream.qid)
+			b.out.send(b.conn)
 		} else if sum != nil || b.err != nil {
 			return
 		}
@@ -457,9 +441,11 @@ func (b *bolt4) discardAllStreams() {
 func (b *bolt4) sendPullN() {
 	b.assertState(bolt4_streaming, bolt3_streamingtx)
 	if b.state == bolt4_streaming {
-		b.sendMsg(msgPullN, map[string]interface{}{"n": b.streams.curr.fetchSize})
+		b.out.appendPullN(b.streams.curr.fetchSize)
+		b.out.send(b.conn)
 	} else if b.state == bolt4_streamingtx {
-		b.sendMsg(msgPullN, map[string]interface{}{"n": b.streams.curr.fetchSize, "qid": b.streams.curr.qid})
+		b.out.appendPullNQid(b.streams.curr.fetchSize, b.streams.curr.qid)
+		b.out.send(b.conn)
 	}
 }
 
@@ -538,12 +524,12 @@ func (b *bolt4) run(cypher string, params map[string]interface{}, fetchSize int,
 	}
 	if b.state == bolt4_pendingtx {
 		// Append lazy begin transaction message
-		b.appendMsg(msgBegin, meta)
+		b.out.appendBegin(meta)
 		meta = nil // Don't add this to run message again
 	}
 
 	// Append run message
-	b.appendMsg(msgRun, cypher, params, meta)
+	b.out.appendRun(cypher, params, meta)
 
 	// Ensure that fetchSize is in a valid range
 	switch {
@@ -553,7 +539,8 @@ func (b *bolt4) run(cypher string, params map[string]interface{}, fetchSize int,
 		fetchSize = bolt4_fetchsize
 	}
 	// Append pull message and send it along with other pending messages
-	b.sendMsg(msgPullN, map[string]interface{}{"n": fetchSize})
+	b.out.appendPullN(fetchSize)
+	b.out.send(b.conn)
 
 	// Process server responses
 	// Receive confirmation of transaction begin if it was started above
@@ -820,7 +807,9 @@ func (b *bolt4) Reset() {
 	b.err = nil
 
 	// Send the reset message to the server
-	if b.sendMsg(msgReset); b.err != nil {
+	b.out.appendReset()
+	b.out.send(b.conn)
+	if b.err != nil {
 		return
 	}
 
@@ -894,7 +883,8 @@ func (b *bolt4) GetRoutingTable(database string, context map[string]string) (*db
 func (b *bolt4) Close() {
 	b.log.Infof(log.Bolt4, b.logId, "Close")
 	if b.state != bolt4_dead {
-		b.sendMsg(msgGoodbye)
+		b.out.appendGoodbye()
+		b.out.send(b.conn)
 	}
 	b.conn.Close()
 	b.state = bolt4_dead
