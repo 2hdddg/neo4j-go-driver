@@ -265,10 +265,18 @@ func (o *outgoing) packX(x interface{}) {
 	case reflect.Struct:
 		o.packStruct(x)
 	case reflect.Slice:
-		// Check for more optimal/specific cases
+		// Optimizations
 		switch s := x.(type) {
 		case []byte:
-			o.packer.Bytes(s)
+			o.packer.Bytes(s) // Not just optimization
+		case []int:
+			o.packer.Ints(s)
+		case []int64:
+			o.packer.Int64s(s)
+		case []string:
+			o.packer.Strings(s)
+		case []float64:
+			o.packer.Float64s(s)
 		default:
 			num := v.Len()
 			o.packer.ArrayHeader(num)
@@ -277,16 +285,24 @@ func (o *outgoing) packX(x interface{}) {
 			}
 		}
 	case reflect.Map:
-		t := reflect.TypeOf(x)
-		if t.Key().Kind() != reflect.String {
-			o.onErr(&UnsupportedTypeError{t: reflect.TypeOf(x)})
-			return
-		}
-		o.packer.MapHeader(v.Len())
-		// TODO Use MapRange when min Go version is >= 1.12
-		for _, ki := range v.MapKeys() {
-			o.packer.String(ki.String())
-			o.packX(v.MapIndex(ki).Interface())
+		// Optimizations
+		switch m := x.(type) {
+		case map[string]int:
+			o.packer.IntMap(m)
+		case map[string]string:
+			o.packer.StringMap(m)
+		default:
+			t := reflect.TypeOf(x)
+			if t.Key().Kind() != reflect.String {
+				o.onErr(&UnsupportedTypeError{t: reflect.TypeOf(x)})
+				return
+			}
+			o.packer.MapHeader(v.Len())
+			// TODO Use MapRange when min Go version is >= 1.12
+			for _, ki := range v.MapKeys() {
+				o.packer.String(ki.String())
+				o.packX(v.MapIndex(ki).Interface())
+			}
 		}
 	default:
 		o.onErr(&UnsupportedTypeError{t: reflect.TypeOf(x)})

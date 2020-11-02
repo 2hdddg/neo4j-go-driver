@@ -69,6 +69,26 @@ func BenchmarkUnpackingSmall(b *testing.B) {
 	}
 }
 
+func BenchmarkUnpackingSmall2(b *testing.B) {
+	buf := []byte{}
+	network := &bytes.Buffer{}
+	hyd := &hydrator{}
+	var err error
+
+	for i := 0; i < b.N; i++ {
+		network.Write(rawMsgSomeSmall)
+		buf, err = dechunkMessage(network, buf)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, err = hyd.hydrate(buf)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+}
+
 func BenchmarkUnpackingStructs(b *testing.B) {
 	// Build an example record containing some spatial types instances. Spatial types are pretty
 	// simple. Temporal types needs separate benchmarking.
@@ -79,6 +99,21 @@ func BenchmarkUnpackingStructs(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		unpacker.UnpackStruct(buf, hydrate)
+	}
+}
+
+func BenchmarkUnpackingStructs2(b *testing.B) {
+	// Build an example record containing some spatial types instances. Spatial types are pretty
+	// simple. Temporal types needs separate benchmarking.
+	packer := &packstream.Packer{}
+	buf, _ := packer.PackStruct([]byte{}, dehydrate, msgRecord,
+		&dbtype.Point2D{}, &dbtype.Point3D{}, &dbtype.Point2D{}, &dbtype.Point3D{}, &dbtype.Point2D{}, &dbtype.Point3D{})
+	//unpacker := &packstream.Unpacker{}
+	hyd := &hydrator{}
+
+	for i := 0; i < b.N; i++ {
+		hyd.hydrate(buf)
+		//unpacker.UnpackStruct(buf, hydrate)
 	}
 }
 
@@ -120,5 +155,43 @@ func BenchmarkPackRunLarge(b *testing.B) {
 		chunker.endMessage()
 		// Emulate what is done in chunker
 		chunker.buf = chunker.buf[:0]
+		chunker.offset = 0
+		chunker.sizes = chunker.sizes[:0]
+	}
+}
+
+func BenchmarkPackRunLarge2(b *testing.B) {
+	out := &outgoing{
+		chunker: newChunker(),
+		packer:  &packstream.Packer2{},
+		onErr: func(err error) {
+			b.Fatal(err)
+		}}
+	//chunker := newChunker()
+	//packer := &packstream.Packer{}
+	cypher := "MATCH (n { name: 'Andy' }) SET ( CASE WHEN n.age = 36 THEN n END ).worksIn = 'Malmo' RETURN n.name, n.worksIn"
+	//var err error
+	params := map[string]interface{}{
+		"aint":        12121,
+		"abiging":     int64(12121212121),
+		"manyints":    manyInts,
+		"manystrings": manyStrings,
+	}
+	meta := map[string]interface{}{}
+
+	for i := 0; i < b.N; i++ {
+		out.appendRun(cypher, params, meta)
+		/*
+			//chunker.beginMessage()
+			chunker.buf, err = packer.PackStruct(chunker.buf, dehydrate, msgRun, cypher, params, meta)
+			if err != nil {
+				b.Fatal(err)
+			}
+			chunker.endMessage()
+		*/
+		// Emulate what is done in chunker
+		out.chunker.buf = out.chunker.buf[:0]
+		out.chunker.offset = 0
+		out.chunker.sizes = out.chunker.sizes[:0]
 	}
 }

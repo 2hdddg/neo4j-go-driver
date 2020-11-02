@@ -149,12 +149,56 @@ func (p *Packer2) String(s string) {
 	p.buf = append(p.buf, []byte(s)...)
 }
 
+func (p *Packer2) Strings(ss []string) {
+	p.listHeader(len(ss), 0x90, 0xd4)
+	for _, s := range ss {
+		p.String(s)
+	}
+}
+
+func (p *Packer2) Ints(ii []int) {
+	p.listHeader(len(ii), 0x90, 0xd4)
+	for _, i := range ii {
+		p.Int(i)
+	}
+}
+
+func (p *Packer2) Int64s(ii []int64) {
+	p.listHeader(len(ii), 0x90, 0xd4)
+	for _, i := range ii {
+		p.Int64(i)
+	}
+}
+
+func (p *Packer2) Float64s(ii []float64) {
+	p.listHeader(len(ii), 0x90, 0xd4)
+	for _, i := range ii {
+		p.Float64(i)
+	}
+}
+
 func (p *Packer2) ArrayHeader(l int) {
 	p.listHeader(l, 0x90, 0xd4)
 }
 
 func (p *Packer2) MapHeader(l int) {
 	p.listHeader(l, 0xa0, 0xd8)
+}
+
+func (p *Packer2) IntMap(m map[string]int) {
+	p.listHeader(len(m), 0xa0, 0xd8)
+	for k, v := range m {
+		p.String(k)
+		p.Int(v)
+	}
+}
+
+func (p *Packer2) StringMap(m map[string]string) {
+	p.listHeader(len(m), 0xa0, 0xd8)
+	for k, v := range m {
+		p.String(k)
+		p.String(v)
+	}
 }
 
 func (p *Packer2) Bytes(b []byte) {
