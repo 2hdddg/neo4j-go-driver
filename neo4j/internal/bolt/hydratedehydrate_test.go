@@ -20,17 +20,18 @@
 package bolt
 
 import (
-	"errors"
-	"reflect"
+	//	"errors"
+	//	"reflect"
 	"testing"
 	"time"
 
-	"github.com/neo4j/neo4j-go-driver/v4/neo4j/db"
+	//	"github.com/neo4j/neo4j-go-driver/v4/neo4j/db"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
 	. "github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/testutil"
 )
 
+/*
 func TestHydrator(ot *testing.T) {
 	cases := []struct {
 		name       string
@@ -151,6 +152,8 @@ func TestHydrator(ot *testing.T) {
 		})
 	}
 }
+*/
+
 func TestDehydrator(ot *testing.T) {
 	cases := []struct {
 		name string
