@@ -21,7 +21,7 @@ package bolt
 
 import (
 	"fmt"
-	"net"
+	"io"
 	"reflect"
 	"time"
 
@@ -133,8 +133,8 @@ func (o *outgoing) appendGoodbye() {
 	o._end()
 }
 
-func (o *outgoing) send(conn net.Conn) {
-	err := o.chunker.send(conn)
+func (o *outgoing) send(wr io.Writer) {
+	err := o.chunker.send(wr)
 	if err != nil {
 		o.onErr(err)
 	}
