@@ -72,8 +72,7 @@ type bolt3 struct {
 	currStream    *stream
 	conn          net.Conn
 	serverName    string
-	chunker       *chunker
-	packer        *packstream.Packer
+	out           *outgoing
 	hydrator      hydrator
 	connId        string
 	logId         string
@@ -88,16 +87,25 @@ type bolt3 struct {
 }
 
 func NewBolt3(serverName string, conn net.Conn, log log.Logger) *bolt3 {
-	return &bolt3{
+	b := &bolt3{
 		state:         bolt3_unauthorized,
 		conn:          conn,
 		serverName:    serverName,
-		chunker:       newChunker(),
 		receiveBuffer: make([]byte, 4096),
-		packer:        &packstream.Packer{},
 		birthDate:     time.Now(),
 		log:           log,
 	}
+	b.out = &outgoing{
+		chunker: newChunker(),
+		packer:  &packstream.Packer2{},
+		onErr: func(err error) {
+			if b.err == nil {
+				b.err = err
+			}
+			b.state = bolt3_dead
+		},
+	}
+	return b
 }
 
 func (b *bolt3) ServerName() string {
@@ -109,6 +117,7 @@ func (b *bolt3) ServerVersion() string {
 }
 
 // Sets b.err and b.state on failure
+/*
 func (b *bolt3) appendMsg(tag packstream.StructTag, field ...interface{}) {
 	b.chunker.beginMessage()
 	// Setup the message and let packstream write the packed bytes to the chunk
@@ -134,6 +143,7 @@ func (b *bolt3) sendMsg(tag packstream.StructTag, field ...interface{}) {
 		b.state = bolt3_dead
 	}
 }
+*/
 
 // Sets b.err and b.state on failure
 func (b *bolt3) receiveMsg() interface{} {
@@ -203,9 +213,11 @@ func (b *bolt3) connect(auth map[string]interface{}, userAgent string) error {
 	}
 
 	// Send hello message and wait for confirmation
-	if b.sendMsg(msgHello, hello); b.err != nil {
+	b.out.appendHello(hello)
+	if b.out.send(b.conn); b.err != nil {
 		return b.err
 	}
+
 	succ := b.receiveSuccess()
 	if b.err != nil {
 		return b.err
@@ -243,7 +255,8 @@ func (b *bolt3) TxBegin(txConfig db.TxConfig) (db.TxHandle, error) {
 	// If there are bookmarks, begin the transaction immediately to get the error from the
 	// server early on. Requires a network roundtrip.
 	if len(tx.bookmarks) > 0 {
-		if b.sendMsg(msgBegin, tx.toMeta()); b.err != nil {
+		b.out.appendBegin(tx.toMeta())
+		if b.out.send(b.conn); b.err != nil {
 			return 0, b.err
 		}
 		if b.receiveSuccess(); b.err != nil {
@@ -315,7 +328,8 @@ func (b *bolt3) TxCommit(txh db.TxHandle) error {
 	}
 
 	// Send request to server to commit
-	if b.sendMsg(msgCommit); b.err != nil {
+	b.out.appendCommit()
+	if b.out.send(b.conn); b.err != nil {
 		return b.err
 	}
 
@@ -360,7 +374,8 @@ func (b *bolt3) TxRollback(txh db.TxHandle) error {
 	}
 
 	// Send rollback request to server
-	if b.sendMsg(msgRollback); b.err != nil {
+	b.out.appendRollback()
+	if b.out.send(b.conn); b.err != nil {
 		return b.err
 	}
 
@@ -435,19 +450,16 @@ func (b *bolt3) run(cypher string, params map[string]interface{}, tx *internalTx
 
 	// Append lazy begin transaction message
 	if b.state == bolt3_pendingtx {
-		if b.appendMsg(msgBegin, meta); b.err != nil {
-			return nil, b.err
-		}
+		b.out.appendBegin(meta)
 		meta = nil
 	}
 
 	// Append run message
-	if b.appendMsg(msgRun, cypher, params, meta); b.err != nil {
-		return nil, b.err
-	}
+	b.out.appendRun(cypher, params, meta)
 
 	// Append pull all message and send it along with other pending messages
-	if b.sendMsg(msgPullAll); b.err != nil {
+	b.out.appendPullAll()
+	if b.out.send(b.conn); b.err != nil {
 		return nil, b.err
 	}
 
@@ -681,7 +693,10 @@ func (b *bolt3) Reset() {
 	}
 
 	// Send the reset message to the server
-	if b.sendMsg(msgReset); b.err != nil {
+	// Need to clear any pending error
+	b.err = nil
+	b.out.appendReset()
+	if b.out.send(b.conn); b.err != nil {
 		return
 	}
 
@@ -752,7 +767,8 @@ func (b *bolt3) GetRoutingTable(database string, context map[string]string) (*db
 func (b *bolt3) Close() {
 	b.log.Infof(log.Bolt3, b.logId, "Close")
 	if b.state != bolt3_dead {
-		b.sendMsg(msgGoodbye)
+		b.out.appendGoodbye()
+		b.out.send(b.conn)
 	}
 	b.conn.Close()
 	b.state = bolt3_dead
