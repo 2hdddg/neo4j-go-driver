@@ -23,8 +23,9 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"time"
 
-	//"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
+	"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
 )
 
@@ -51,14 +52,14 @@ func (o *outgoing) _end() {
 func (o *outgoing) appendHello(hello map[string]interface{}) {
 	o._begin()
 	o.packer.StructHeader(byte(msgHello), 1)
-	o._packMap(hello)
+	o.packMap(hello)
 	o._end()
 }
 
 func (o *outgoing) appendBegin(meta map[string]interface{}) {
 	o._begin()
 	o.packer.StructHeader(byte(msgBegin), 1)
-	o._packMap(meta)
+	o.packMap(meta)
 	o._end()
 }
 
@@ -78,8 +79,8 @@ func (o *outgoing) appendRun(cypher string, params, meta map[string]interface{})
 	o._begin()
 	o.packer.StructHeader(byte(msgRun), 3)
 	o.packer.String(cypher)
-	o._packMap(params)
-	o._packMap(meta)
+	o.packMap(params)
+	o.packMap(meta)
 	o._end()
 }
 
@@ -139,28 +140,110 @@ func (o *outgoing) send(conn net.Conn) {
 	}
 }
 
-func (o *outgoing) _packMap(m map[string]interface{}) {
+func (o *outgoing) packMap(m map[string]interface{}) {
 	o.packer.MapHeader(len(m))
 	for k, v := range m {
 		o.packer.String(k)
-		o._packX(v)
+		o.packX(v)
 	}
 }
 
-func (o *outgoing) _packX(x interface{}) {
+func (o *outgoing) packStruct(x interface{}) {
+	switch v := x.(type) {
+	case *dbtype.Point2D:
+		o.packer.StructHeader('X', 3)
+		o.packer.Uint32(v.SpatialRefId)
+		o.packer.Float64(v.X)
+		o.packer.Float64(v.Y)
+	case dbtype.Point2D:
+		o.packer.StructHeader('X', 3)
+		o.packer.Uint32(v.SpatialRefId)
+		o.packer.Float64(v.X)
+		o.packer.Float64(v.Y)
+	case *dbtype.Point3D:
+		o.packer.StructHeader('Y', 4)
+		o.packer.Uint32(v.SpatialRefId)
+		o.packer.Float64(v.X)
+		o.packer.Float64(v.Y)
+		o.packer.Float64(v.Z)
+	case dbtype.Point3D:
+		o.packer.StructHeader('Y', 4)
+		o.packer.Uint32(v.SpatialRefId)
+		o.packer.Float64(v.X)
+		o.packer.Float64(v.Y)
+		o.packer.Float64(v.Z)
+	case time.Time:
+		zone, offset := v.Zone()
+		secs := v.Unix() + int64(offset)
+		nanos := v.Nanosecond()
+		if zone == "Offset" {
+			o.packer.StructHeader('F', 3)
+			o.packer.Int64(secs)
+			o.packer.Int(nanos)
+			o.packer.Int(offset)
+		} else {
+			o.packer.StructHeader('f', 3)
+			o.packer.Int64(secs)
+			o.packer.Int(nanos)
+			o.packer.String(v.Location().String())
+		}
+	case dbtype.LocalDateTime:
+		t := time.Time(v)
+		_, offset := t.Zone()
+		secs := t.Unix() + int64(offset)
+		o.packer.StructHeader('d', 2)
+		o.packer.Int64(secs)
+		o.packer.Int(t.Nanosecond())
+	case dbtype.Date:
+		t := time.Time(v)
+		secs := t.Unix()
+		_, offset := t.Zone()
+		secs += int64(offset)
+		days := secs / (60 * 60 * 24)
+		o.packer.StructHeader('D', 1)
+		o.packer.Int64(days)
+	case dbtype.Time:
+		t := time.Time(v)
+		_, tzOffsetSecs := t.Zone()
+		d := t.Sub(
+			time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()))
+		o.packer.StructHeader('T', 2)
+		o.packer.Int64(d.Nanoseconds())
+		o.packer.Int(tzOffsetSecs)
+	case dbtype.LocalTime:
+		t := time.Time(v)
+		nanos := int64(time.Hour)*int64(t.Hour()) +
+			int64(time.Minute)*int64(t.Minute()) +
+			int64(time.Second)*int64(t.Second()) +
+			int64(t.Nanosecond())
+		o.packer.StructHeader('t', 1)
+		o.packer.Int64(nanos)
+	case dbtype.Duration:
+		o.packer.StructHeader('E', 4)
+		o.packer.Int64(v.Months)
+		o.packer.Int64(v.Days)
+		o.packer.Int64(v.Seconds)
+		o.packer.Int(v.Nanos)
+	default:
+		o.onErr(&UnsupportedTypeError{t: reflect.TypeOf(x)})
+	}
+}
+
+func (o *outgoing) packX(x interface{}) {
 	if x == nil {
 		o.packer.Nil()
 		return
 	}
+
 	v := reflect.ValueOf(x)
 	switch v.Kind() {
 	case reflect.Bool:
 		o.packer.Bool(v.Bool())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		o.packer.Int64(v.Int())
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
+	case reflect.Uint8, reflect.Uint16, reflect.Uint32:
 		o.packer.Uint32(uint32(v.Uint()))
-	case reflect.Uint64:
+	case reflect.Uint64, reflect.Uint:
 		o.packer.Uint64(v.Uint())
 	case reflect.Float32, reflect.Float64:
 		o.packer.Float64(v.Float())
@@ -175,29 +258,23 @@ func (o *outgoing) _packX(x interface{}) {
 		i := reflect.Indirect(v)
 		switch i.Kind() {
 		case reflect.Struct:
-			panic("Todo")
-			/*
-				s, isS := x.(*Struct)
-				if isS {
-					p.writeStruct(s.Tag, s.Fields)
-				} else {
-					// Unknown type, call dehydration hook to make it into a struct
-					p.tryDehydrate(x)
-				}
-			*/
+			o.packStruct(x)
 		default:
-			panic("Todo")
-			//p.pack(i.Interface())
+			o.packX(i.Interface())
 		}
 	case reflect.Struct:
-		// Unknown type, call dehydration hook to make it into a struct
-		//p.tryDehydrate(x)
-		panic("Todo")
+		o.packStruct(x)
 	case reflect.Slice:
-		num := v.Len()
-		o.packer.ArrayHeader(num)
-		for i := 0; i < num; i++ {
-			o._packX(v.Index(i).Interface())
+		// Check for more optimal/specific cases
+		switch s := x.(type) {
+		case []byte:
+			o.packer.Bytes(s)
+		default:
+			num := v.Len()
+			o.packer.ArrayHeader(num)
+			for i := 0; i < num; i++ {
+				o.packX(v.Index(i).Interface())
+			}
 		}
 	case reflect.Map:
 		t := reflect.TypeOf(x)
@@ -209,7 +286,7 @@ func (o *outgoing) _packX(x interface{}) {
 		// TODO Use MapRange when min Go version is >= 1.12
 		for _, ki := range v.MapKeys() {
 			o.packer.String(ki.String())
-			o._packX(v.MapIndex(ki).Interface())
+			o.packX(v.MapIndex(ki).Interface())
 		}
 	default:
 		o.onErr(&UnsupportedTypeError{t: reflect.TypeOf(x)})
