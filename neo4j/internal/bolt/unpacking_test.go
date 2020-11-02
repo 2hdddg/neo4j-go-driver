@@ -22,6 +22,7 @@ package bolt
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
@@ -108,12 +109,10 @@ func BenchmarkUnpackingStructs2(b *testing.B) {
 	packer := &packstream.Packer{}
 	buf, _ := packer.PackStruct([]byte{}, dehydrate, msgRecord,
 		&dbtype.Point2D{}, &dbtype.Point3D{}, &dbtype.Point2D{}, &dbtype.Point3D{}, &dbtype.Point2D{}, &dbtype.Point3D{})
-	//unpacker := &packstream.Unpacker{}
 	hyd := &hydrator{}
 
 	for i := 0; i < b.N; i++ {
 		hyd.hydrate(buf)
-		//unpacker.UnpackStruct(buf, hydrate)
 	}
 }
 
@@ -133,6 +132,25 @@ var manyStrings = []string{
 	"It", " is", " possible", " to", " set ", "", "a ", "property ", "on ", "a node or relationship ", "using more ", "complex expressions", ". For ", "instance, ", "in contrast to ", "specifying ", "the ", "node directly", ", ", "the ", "following query ", "shows how ", "to set ", "a ", "property for a node selected by an ", "expression",
 }
 
+var manyTimes = []time.Time{
+	time.Now(), time.Now(), time.Now(), time.Now(), time.Now(),
+	time.Now(), time.Now(), time.Now(), time.Now(), time.Now(),
+}
+
+var manyPoints = []dbtype.Point2D{
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+	{SpatialRefId: 123, X: 121212.2332, Y: 1210.0001}, {SpatialRefId: 123, X: 121212.2332, Y: 1210.0001},
+}
+
 func BenchmarkPackRunLarge(b *testing.B) {
 	chunker := newChunker()
 	packer := &packstream.Packer{}
@@ -143,6 +161,8 @@ func BenchmarkPackRunLarge(b *testing.B) {
 		"abiging":     int64(12121212121),
 		"manyints":    manyInts,
 		"manystrings": manyStrings,
+		"manytimes":   manyTimes,
+		"manyPoints":  manyPoints,
 	}
 	meta := map[string]interface{}{}
 
@@ -167,8 +187,6 @@ func BenchmarkPackRunLarge2(b *testing.B) {
 		onErr: func(err error) {
 			b.Fatal(err)
 		}}
-	//chunker := newChunker()
-	//packer := &packstream.Packer{}
 	cypher := "MATCH (n { name: 'Andy' }) SET ( CASE WHEN n.age = 36 THEN n END ).worksIn = 'Malmo' RETURN n.name, n.worksIn"
 	//var err error
 	params := map[string]interface{}{
@@ -176,19 +194,14 @@ func BenchmarkPackRunLarge2(b *testing.B) {
 		"abiging":     int64(12121212121),
 		"manyints":    manyInts,
 		"manystrings": manyStrings,
+		"manytimes":   manyTimes,
+		"manyPoints":  manyPoints,
 	}
 	meta := map[string]interface{}{}
 
 	for i := 0; i < b.N; i++ {
 		out.appendRun(cypher, params, meta)
-		/*
-			//chunker.beginMessage()
-			chunker.buf, err = packer.PackStruct(chunker.buf, dehydrate, msgRun, cypher, params, meta)
-			if err != nil {
-				b.Fatal(err)
-			}
-			chunker.endMessage()
-		*/
+
 		// Emulate what is done in chunker
 		out.chunker.buf = out.chunker.buf[:0]
 		out.chunker.offset = 0
