@@ -31,14 +31,16 @@ import (
 
 type customStruct struct{}
 
+/*
 type testHydratorMock struct {
 	customHydrate Hydrate
 	err           error
 }
+*/
 
 // Generic unpack function that behaves as a consumer of Unpacker would
 // impllement this.
-func unpack(u *Unpacker2) interface{} {
+func unpack(u *Unpacker) interface{} {
 	u.Next()
 	switch u.Curr {
 	case PackedInt:
@@ -190,6 +192,7 @@ func pack(p *Packer, x interface{}) {
 	}
 }
 
+/*
 func (m *testHydratorMock) hydrate(tag StructTag, fields []interface{}) (interface{}, error) {
 	if m.err != nil {
 		return nil, m.err
@@ -211,6 +214,7 @@ type testHydrationError struct{}
 func (e *testHydrationError) Error() string {
 	return ""
 }
+*/
 
 type limitedWriter struct {
 	max int
@@ -697,21 +701,23 @@ func TestPackStream(ot *testing.T) {
 		if !c.testUnpacked {
 			continue
 		}
-		ot.Run(fmt.Sprintf("Unpacking of %s", c.name), func(t *testing.T) {
-			// Initialize buffer with expectation of pack test
-			u := &Unpacker{buf: c.expectPacked, offset: 0, length: uint32(len(c.expectPacked))}
-			hf := &testHydratorMock{}
-			x, err := u.unpack(hf.hydrate)
-			if err != nil {
-				t.Fatalf("Unable to unpack: %s", err)
-			}
-			if !reflect.DeepEqual(x, c.expectUnpacked) {
-				t.Errorf("Unpacked differs, expected %+v (%T) but was %+v (%T)", c.expectUnpacked, c.expectUnpacked, x, x)
-			}
-		})
+		/*
+			ot.Run(fmt.Sprintf("Unpacking of %s", c.name), func(t *testing.T) {
+				// Initialize buffer with expectation of pack test
+				u := &Unpacker{buf: c.expectPacked, offset: 0, length: uint32(len(c.expectPacked))}
+				hf := &testHydratorMock{}
+				x, err := u.unpack(hf.hydrate)
+				if err != nil {
+					t.Fatalf("Unable to unpack: %s", err)
+				}
+				if !reflect.DeepEqual(x, c.expectUnpacked) {
+					t.Errorf("Unpacked differs, expected %+v (%T) but was %+v (%T)", c.expectUnpacked, c.expectUnpacked, x, x)
+				}
+			})
+		*/
 
 		ot.Run(fmt.Sprintf("Unpacking2 of %s", c.name), func(t *testing.T) {
-			u := &Unpacker2{}
+			u := &Unpacker{}
 			u.Reset(c.expectPacked)
 			// Use the unpacker as intended to unpack something generic
 			x := unpack(u)
@@ -777,9 +783,14 @@ func TestPackStream(ot *testing.T) {
 		})
 
 		ot.Run(fmt.Sprintf("Unpacking of map size %s", c.name), func(t *testing.T) {
-			u := &Unpacker{buf: buf, offset: 0, length: uint32(len(buf))}
-			hf := &testHydratorMock{}
-			ux, err := u.unpack(hf.hydrate)
+			u := &Unpacker{}
+			u.Reset(buf)
+			ux := unpack(u)
+			/*
+				u := &Unpacker{buf: buf, offset: 0, length: uint32(len(buf))}
+				hf := &testHydratorMock{}
+				ux, err := u.unpack(hf.hydrate)
+			*/
 			um, ok := ux.(map[string]interface{})
 			if !ok {
 				t.Errorf("Unpacked is not a map")
@@ -846,58 +857,62 @@ func TestPackStream(ot *testing.T) {
 	}
 
 	// Unpacker error cases
-	unpackerErrorCases := []struct {
-		name        string
-		buf         []byte
-		expectedErr interface{}
-		hf          *testHydratorMock
-	}{
-		{name: "read error", expectedErr: &IoError{}},
-		{name: "no hydrator",
-			hf:          &testHydratorMock{err: &testHydrationError{}},
-			buf:         []byte{0xb0, 0x66},
-			expectedErr: &testHydrationError{},
-		},
-		{name: "hydration error",
-			hf: &testHydratorMock{
-				customHydrate: func(t StructTag, f []interface{}) (interface{}, error) {
-					return nil, &testHydrationError{}
-				}},
-			buf:         []byte{0xb1, 0x66, 0x01},
-			expectedErr: &testHydrationError{},
-		},
-	}
-	for _, c := range unpackerErrorCases {
-		ot.Run(fmt.Sprintf("Unpacking error of %s", c.name), func(t *testing.T) {
-			if c.hf == nil {
-				c.hf = &testHydratorMock{}
-			}
-			un := &Unpacker{buf: c.buf, offset: 0, length: uint32(len(c.buf))}
-			x, err := un.unpack(c.hf.hydrate)
-			if err == nil {
-				t.Fatal("Should have gotten an error!")
-			}
-			if x != nil {
-				t.Errorf("Unpack should not return value upon error: %+v", x)
-			}
-			if reflect.TypeOf(err) != reflect.TypeOf(c.expectedErr) {
-				t.Errorf("Wrong type of error, expected %T but was %T:%s", c.expectedErr, err, err)
-			}
-		})
-	}
+	/*
+		unpackerErrorCases := []struct {
+			name        string
+			buf         []byte
+			expectedErr interface{}
+			hf          *testHydratorMock
+		}{
+			{name: "read error", expectedErr: &IoError{}},
+			{name: "no hydrator",
+				hf:          &testHydratorMock{err: &testHydrationError{}},
+				buf:         []byte{0xb0, 0x66},
+				expectedErr: &testHydrationError{},
+			},
+			{name: "hydration error",
+				hf: &testHydratorMock{
+					customHydrate: func(t StructTag, f []interface{}) (interface{}, error) {
+						return nil, &testHydrationError{}
+					}},
+				buf:         []byte{0xb1, 0x66, 0x01},
+				expectedErr: &testHydrationError{},
+			},
+		}
+		for _, c := range unpackerErrorCases {
+			ot.Run(fmt.Sprintf("Unpacking error of %s", c.name), func(t *testing.T) {
+				if c.hf == nil {
+					c.hf = &testHydratorMock{}
+				}
+				un := &Unpacker{buf: c.buf, offset: 0, length: uint32(len(c.buf))}
+				x, err := un.unpack(c.hf.hydrate)
+				if err == nil {
+					t.Fatal("Should have gotten an error!")
+				}
+				if x != nil {
+					t.Errorf("Unpack should not return value upon error: %+v", x)
+				}
+				if reflect.TypeOf(err) != reflect.TypeOf(c.expectedErr) {
+					t.Errorf("Wrong type of error, expected %T but was %T:%s", c.expectedErr, err, err)
+				}
+			})
+		}
+	*/
 
 	// Unpacker UnpackStruct top level API smoke test
-	ot.Run("UnpackStruct smoke test", func(t *testing.T) {
-		// Initialize buffer with expectation of pack test
-		buf := []byte{0xb0, 0x66}
-		u := &Unpacker{} //NewUnpacker(buf)
-		hf := &testHydratorMock{}
-		x, err := u.UnpackStruct(buf, hf.hydrate)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(x, emptyStruct) {
-			t.Errorf("Unpacked differs: %+v vs %+v", x, emptyStruct)
-		}
-	})
+	/*
+		ot.Run("UnpackStruct smoke test", func(t *testing.T) {
+			// Initialize buffer with expectation of pack test
+			buf := []byte{0xb0, 0x66}
+			u := &Unpacker{} //NewUnpacker(buf)
+			hf := &testHydratorMock{}
+			x, err := u.UnpackStruct(buf, hf.hydrate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(x, emptyStruct) {
+				t.Errorf("Unpacked differs: %+v vs %+v", x, emptyStruct)
+			}
+		})
+	*/
 }

@@ -28,8 +28,45 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
 )
 
-func passthroughHydrator(tag packstream.StructTag, fields []interface{}) (interface{}, error) {
-	return &packstream.Struct{Tag: tag, Fields: fields}, nil
+func serverHydrator(unpacker *packstream.Unpacker) interface{} {
+	switch unpacker.Curr {
+	case packstream.PackedInt:
+		return unpacker.Int()
+	case packstream.PackedFloat:
+		return unpacker.Float()
+	case packstream.PackedStr:
+		return unpacker.String()
+	case packstream.PackedStruct:
+		panic("No support for unpacking struct in server stub")
+	case packstream.PackedByteArray:
+		return unpacker.ByteArray()
+	case packstream.PackedArray:
+		n := unpacker.Len()
+		a := make([]interface{}, n)
+		for i := range a {
+			unpacker.Next()
+			a[i] = serverHydrator(unpacker)
+		}
+		return a
+	case packstream.PackedMap:
+		n := unpacker.Len()
+		m := make(map[string]interface{}, n)
+		for ; n > 0; n-- {
+			unpacker.Next()
+			key := unpacker.String()
+			unpacker.Next()
+			m[key] = serverHydrator(unpacker)
+		}
+		return m
+	case packstream.PackedNil:
+		return nil
+	case packstream.PackedTrue:
+		return true
+	case packstream.PackedFalse:
+		return false
+	default:
+		panic("Unsupported type to unpack")
+	}
 }
 
 // Fake of bolt3 server.
@@ -38,7 +75,6 @@ func passthroughHydrator(tag packstream.StructTag, fields []interface{}) (interf
 // in the test.
 type bolt3server struct {
 	conn     net.Conn
-	hyd      packstream.Hydrate
 	unpacker *packstream.Unpacker
 	out      *outgoing
 }
@@ -51,7 +87,6 @@ func newBolt3Server(conn net.Conn) *bolt3server {
 			chunker: newChunker(),
 			packer:  &packstream.Packer{},
 		},
-		hyd: passthroughHydrator,
 	}
 }
 
@@ -101,11 +136,18 @@ func (s *bolt3server) receiveMsg() *packstream.Struct {
 	if err != nil {
 		panic(err)
 	}
-	x, err := s.unpacker.UnpackStruct(buf, s.hyd)
-	if err != nil {
-		panic(err)
+
+	s.unpacker.Reset(buf)
+	s.unpacker.Next()
+	n := s.unpacker.Len()
+	t := s.unpacker.StructTag()
+
+	fields := make([]interface{}, n)
+	for i := uint32(0); i < n; i++ {
+		s.unpacker.Next()
+		fields[i] = serverHydrator(s.unpacker)
 	}
-	return x.(*packstream.Struct)
+	return &packstream.Struct{Tag: packstream.StructTag(t), Fields: fields}
 }
 
 func (s *bolt3server) waitForRun() {

@@ -47,7 +47,7 @@ func (t *testStruct) String() string {
 }
 
 // Utility to dehydrate/unpack
-func unpack(u *packstream.Unpacker2) interface{} {
+func unpack(u *packstream.Unpacker) interface{} {
 	u.Next()
 	switch u.Curr {
 	case packstream.PackedInt:
@@ -120,7 +120,7 @@ func TestOutgoing(ot *testing.T) {
 			t.Fatal(err)
 		}
 		// Hydrate it
-		unpacker := &packstream.Unpacker2{}
+		unpacker := &packstream.Unpacker{}
 		unpacker.Reset(byts)
 		x := unpack(unpacker)
 		if unpacker.Err != nil {

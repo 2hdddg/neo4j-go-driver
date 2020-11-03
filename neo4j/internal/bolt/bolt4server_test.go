@@ -34,7 +34,6 @@ import (
 // in the test.
 type bolt4server struct {
 	conn     net.Conn
-	hyd      packstream.Hydrate
 	unpacker *packstream.Unpacker
 	out      *outgoing
 }
@@ -47,7 +46,6 @@ func newBolt4Server(conn net.Conn) *bolt4server {
 			chunker: newChunker(),
 			packer:  &packstream.Packer{},
 		},
-		hyd: passthroughHydrator,
 	}
 }
 
@@ -100,11 +98,17 @@ func (s *bolt4server) receiveMsg() *packstream.Struct {
 	if err != nil {
 		panic(err)
 	}
-	x, err := s.unpacker.UnpackStruct(buf, s.hyd)
-	if err != nil {
-		panic(err)
+	s.unpacker.Reset(buf)
+	s.unpacker.Next()
+	n := s.unpacker.Len()
+	t := s.unpacker.StructTag()
+
+	fields := make([]interface{}, n)
+	for i := uint32(0); i < n; i++ {
+		s.unpacker.Next()
+		fields[i] = serverHydrator(s.unpacker)
 	}
-	return x.(*packstream.Struct)
+	return &packstream.Struct{Tag: packstream.StructTag(t), Fields: fields}
 }
 
 func (s *bolt4server) waitForRun() {

@@ -85,8 +85,8 @@ func (s *success) clear() {
 }
 
 type hydrator struct {
-	unpacker      packstream.Unpacker2
-	unp           *packstream.Unpacker2
+	unpacker      packstream.Unpacker
+	unp           *packstream.Unpacker
 	err           error
 	cachedIgnored ignored
 	cachedSuccess success
