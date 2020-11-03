@@ -23,7 +23,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"reflect"
@@ -89,7 +88,7 @@ func unpack(u *Unpacker2) interface{} {
 	}
 }
 
-func pack(p *Packer2, x interface{}) {
+func pack(p *Packer, x interface{}) {
 	if x == nil {
 		p.Nil()
 		return
@@ -129,25 +128,16 @@ func pack(p *Packer2, x interface{}) {
 			pack(p, y)
 		}
 	case []string:
-		p.ArrayHeader(len(v))
-		for _, y := range v {
-			pack(p, y)
-		}
+		p.Strings(v)
 	case []int64:
-		p.ArrayHeader(len(v))
-		for _, y := range v {
-			pack(p, y)
-		}
+		p.Int64s(v)
 	case []int16:
 		p.ArrayHeader(len(v))
 		for _, y := range v {
 			pack(p, y)
 		}
 	case []int:
-		p.ArrayHeader(len(v))
-		for _, y := range v {
-			pack(p, y)
-		}
+		p.Ints(v)
 	case []int8:
 		p.ArrayHeader(len(v))
 		for _, y := range v {
@@ -174,10 +164,7 @@ func pack(p *Packer2, x interface{}) {
 			pack(p, y)
 		}
 	case []float64:
-		p.ArrayHeader(len(v))
-		for _, y := range v {
-			pack(p, y)
-		}
+		p.Float64s(v)
 	case []float32:
 		p.ArrayHeader(len(v))
 		for _, y := range v {
@@ -349,7 +336,7 @@ func TestPackStream(ot *testing.T) {
 		expectPacked   []byte
 		expectUnpacked interface{}
 		testUnpacked   bool
-		dehydrate      Dehydrate
+		//dehydrate      Dehydrate
 	}{
 		// Nil
 		{name: "nil", value: nil, testUnpacked: true,
@@ -688,30 +675,32 @@ func TestPackStream(ot *testing.T) {
 
 	for _, c := range cases {
 		// Packing
+		/*
+			ot.Run(fmt.Sprintf("Packing of %s", c.name), func(t *testing.T) {
+				buf := []byte{}
+				p := Packer{buf: buf, dehydrate: c.dehydrate}
+				p.pack(c.value)
+				if p.err != nil {
+					t.Fatalf("Unable to pack: %s", p.err)
+				}
+				buf = p.buf
+				if len(c.expectPacked) != len(buf) {
+					dumper.Write(buf)
+					t.Fatalf("Packed buffer differs in size. Got %+v expected %+v",
+						len(buf), len(c.expectPacked))
+				}
+				for i, x := range c.expectPacked {
+					if buf[i] != x {
+						dumper.Write(buf)
+						t.Fatalf("Packed first diff at %d. Got %+v expected %+v",
+							i, buf[i], c.expectPacked[i])
+					}
+				}
+			})
+		*/
 		ot.Run(fmt.Sprintf("Packing of %s", c.name), func(t *testing.T) {
 			buf := []byte{}
-			p := Packer{buf: buf, dehydrate: c.dehydrate}
-			p.pack(c.value)
-			if p.err != nil {
-				t.Fatalf("Unable to pack: %s", p.err)
-			}
-			buf = p.buf
-			if len(c.expectPacked) != len(buf) {
-				dumper.Write(buf)
-				t.Fatalf("Packed buffer differs in size. Got %+v expected %+v",
-					len(buf), len(c.expectPacked))
-			}
-			for i, x := range c.expectPacked {
-				if buf[i] != x {
-					dumper.Write(buf)
-					t.Fatalf("Packed first diff at %d. Got %+v expected %+v",
-						i, buf[i], c.expectPacked[i])
-				}
-			}
-		})
-		ot.Run(fmt.Sprintf("Packing2 of %s", c.name), func(t *testing.T) {
-			buf := []byte{}
-			p := Packer2{}
+			p := Packer{}
 			p.Begin([]byte{})
 			pack(&p, c.value)
 			buf, err := p.End()
@@ -719,7 +708,6 @@ func TestPackStream(ot *testing.T) {
 			if err != nil {
 				t.Fatalf("Unable to pack: %s", p.err)
 			}
-			//buf = p.buf
 			if len(c.expectPacked) != len(buf) {
 				dumper.Write(buf)
 				t.Fatalf("Packed buffer differs in size. Got %+v expected %+v",
@@ -797,14 +785,13 @@ func TestPackStream(ot *testing.T) {
 
 		// Pack the map
 		buf := []byte{}
-		p := Packer{buf: buf, dehydrate: func(x interface{}) (*Struct, error) {
-			return nil, &UnsupportedTypeError{t: reflect.TypeOf(x)}
-		}}
-		p.pack(m)
-		if p.err != nil {
+		p := &Packer{}
+		p.Begin(buf)
+		pack(p, m)
+		buf, err := p.End()
+		if err != nil {
 			ot.Fatalf("Unable to pack: %s", p.err)
 		}
-		buf = p.buf
 
 		ot.Run(fmt.Sprintf("Packing of map size %s", c.name), func(t *testing.T) {
 			// Compare the header
@@ -849,46 +836,40 @@ func TestPackStream(ot *testing.T) {
 	}
 
 	// Packer error cases, things that packer is expected to fail on
+	// TODO: Move to bolt
 	packerErrorCases := []struct {
 		name        string
-		valueFunc   func() interface{}
 		value       interface{}
 		expectedErr interface{}
-		wr          io.Writer
-		dehydrate   Dehydrate
 	}{
 		{name: "uin64 overflow", expectedErr: &OverflowError{},
 			value: (uint64(math.MaxInt64) + 1)},
-		{name: "map something else but string as key", expectedErr: &UnsupportedTypeError{},
-			value: map[int]string{1: "y"}},
 		{name: "too big struct", expectedErr: &OverflowError{},
 			value: &Struct{Tag: 0x67, Fields: []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}}},
-		{name: "a custom type no dehydrator", expectedErr: &UnsupportedTypeError{},
-			value: customStruct{}},
-		{name: "a custom type failing dehydrator", expectedErr: errors.New("x"),
-			dehydrate: func(interface{}) (*Struct, error) {
-				return nil, errors.New("x")
-			},
-			value: customStruct{}},
+		/*
+			{name: "map something else but string as key", expectedErr: &UnsupportedTypeError{},
+				value: map[int]string{1: "y"}},
+			{name: "a custom type no dehydrator", expectedErr: &UnsupportedTypeError{},
+				value: customStruct{}},
+			{name: "a custom type failing dehydrator", expectedErr: errors.New("x"),
+				dehydrate: func(interface{}) (*Struct, error) {
+					return nil, errors.New("x")
+				},
+				value: customStruct{}},
+		*/
 	}
 	for _, c := range packerErrorCases {
 		ot.Run(fmt.Sprintf("Packing error of %s", c.name), func(t *testing.T) {
 			buf := []byte{}
-			p := Packer{buf: buf, dehydrate: c.dehydrate}
-			if p.dehydrate == nil {
-				p.dehydrate = func(x interface{}) (*Struct, error) {
-					return nil, &UnsupportedTypeError{t: reflect.TypeOf(x)}
-				}
-			}
+			p := &Packer{}
 			v := c.value
-			if c.valueFunc != nil {
-				v = c.valueFunc()
-			}
-			p.pack(v)
-			if p.err == nil {
+			p.Begin(buf)
+			pack(p, v)
+			_, err := p.End()
+			if err == nil {
 				t.Fatal("Should have gotten an error!")
 			}
-			if reflect.TypeOf(p.err) != reflect.TypeOf(c.expectedErr) {
+			if reflect.TypeOf(err) != reflect.TypeOf(c.expectedErr) {
 				t.Errorf("Wrong type of error, expected %T but was %T", c.expectedErr, p.err)
 			}
 		})

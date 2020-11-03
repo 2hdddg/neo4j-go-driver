@@ -45,7 +45,7 @@ func newBolt4Server(conn net.Conn) *bolt4server {
 		conn:     conn,
 		out: &outgoing{
 			chunker: newChunker(),
-			packer:  &packstream.Packer2{},
+			packer:  &packstream.Packer{},
 		},
 		hyd: passthroughHydrator,
 	}

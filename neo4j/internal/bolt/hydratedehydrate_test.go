@@ -34,7 +34,7 @@ import (
 func TestDehydrateHydrate(ot *testing.T) {
 	out := &outgoing{
 		chunker: newChunker(),
-		packer:  &packstream.Packer2{},
+		packer:  &packstream.Packer{},
 		onErr: func(err error) {
 			ot.Fatalf("Should be no dehydration errors in this test: %s", err)
 		},

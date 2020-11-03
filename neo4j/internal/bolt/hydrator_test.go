@@ -35,7 +35,7 @@ func TestHydrator(ot *testing.T) {
 		panic(err)
 	}
 
-	packer := packstream.Packer2{}
+	packer := packstream.Packer{}
 	cases := []struct {
 		name  string
 		build func()      // Builds/encodes stream same was as server would

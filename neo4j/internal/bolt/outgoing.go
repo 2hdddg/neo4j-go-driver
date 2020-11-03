@@ -31,7 +31,7 @@ import (
 
 type outgoing struct {
 	chunker *chunker
-	packer  *packstream.Packer2
+	packer  *packstream.Packer
 	onErr   func(err error)
 }
 

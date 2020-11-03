@@ -106,7 +106,7 @@ func NewBolt4(serverName string, conn net.Conn, log log.Logger) *bolt4 {
 	}
 	b.out = &outgoing{
 		chunker: newChunker(),
-		packer:  &packstream.Packer2{},
+		packer:  &packstream.Packer{},
 		onErr:   func(err error) { b.setError(err, true) },
 	}
 	// Setup open streams. Errors reported to callback are assertion like errors, let them
