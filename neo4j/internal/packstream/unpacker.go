@@ -6,8 +6,6 @@ import (
 	"math"
 )
 
-type Type byte
-
 const (
 	PackedUndef = iota // Undefined must be zero!
 	PackedInt
