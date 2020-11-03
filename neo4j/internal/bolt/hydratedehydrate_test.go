@@ -152,7 +152,6 @@ func TestHydrator(ot *testing.T) {
 		})
 	}
 }
-*/
 
 func TestDehydrator(ot *testing.T) {
 	cases := []struct {
@@ -190,6 +189,7 @@ func TestDehydrator(ot *testing.T) {
 		})
 	}
 }
+*/
 
 func TestDehydrateHydrate(ot *testing.T) {
 	dehydrateAndHydrate := func(t *testing.T, xi interface{}) interface{} {
