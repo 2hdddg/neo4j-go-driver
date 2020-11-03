@@ -45,11 +45,7 @@ func TestDehydrateHydrate(ot *testing.T) {
 	// hydration/dehydration circuit.
 	dehydrateAndHydrate := func(t *testing.T, xi interface{}) interface{} {
 		// Put the stuff in a record to avoid getting too violent with the hydrator
-		out._begin()
-		out.packer.StructHeader(byte(msgRecord), 1)
-		out.packer.ArrayHeader(1)
-		out.packStruct(xi)
-		out._end()
+		out.appendX(byte(msgRecord), []interface{}{xi})
 		buf := &bytes.Buffer{}
 		out.send(buf)
 

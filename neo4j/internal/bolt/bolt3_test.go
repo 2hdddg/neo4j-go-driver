@@ -33,7 +33,7 @@ func TestBolt3(ot *testing.T) {
 	runKeys := []interface{}{"f1", "f2"}
 	runBookmark := "bm"
 	runResponse := []packstream.Struct{
-		packstream.Struct{
+		{
 			Tag: msgSuccess,
 			Fields: []interface{}{
 				map[string]interface{}{
@@ -42,19 +42,19 @@ func TestBolt3(ot *testing.T) {
 				},
 			},
 		},
-		packstream.Struct{
+		{
 			Tag:    msgRecord,
 			Fields: []interface{}{[]interface{}{"1v1", "1v2"}},
 		},
-		packstream.Struct{
+		{
 			Tag:    msgRecord,
 			Fields: []interface{}{[]interface{}{"2v1", "2v2"}},
 		},
-		packstream.Struct{
+		{
 			Tag:    msgRecord,
 			Fields: []interface{}{[]interface{}{"3v1", "3v2"}},
 		},
-		packstream.Struct{
+		{
 			Tag:    msgSuccess,
 			Fields: []interface{}{map[string]interface{}{"bookmark": runBookmark, "type": "r"}},
 		},

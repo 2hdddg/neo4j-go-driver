@@ -350,9 +350,9 @@ func TestOutgoing(ot *testing.T) {
 	for _, c := range paramCases {
 		ot.Run(c.name, func(t *testing.T) {
 			x := dechunkAndUnpack(t, func() {
-				out._begin()
+				out.begin()
 				out.packMap(c.inp)
-				out._end()
+				out.end()
 			})
 			if !reflect.DeepEqual(x, c.expect) {
 				t.Errorf("Unpacked differs, expected\n %+v but was\n %+v", c.expect, x)

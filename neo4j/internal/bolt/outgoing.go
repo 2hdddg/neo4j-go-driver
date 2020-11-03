@@ -35,12 +35,12 @@ type outgoing struct {
 	onErr   func(err error)
 }
 
-func (o *outgoing) _begin() {
+func (o *outgoing) begin() {
 	o.chunker.beginMessage()
 	o.packer.Begin(o.chunker.buf)
 }
 
-func (o *outgoing) _end() {
+func (o *outgoing) end() {
 	buf, err := o.packer.End()
 	o.chunker.buf = buf
 	o.chunker.endMessage()
@@ -50,87 +50,97 @@ func (o *outgoing) _end() {
 }
 
 func (o *outgoing) appendHello(hello map[string]interface{}) {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgHello), 1)
 	o.packMap(hello)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendBegin(meta map[string]interface{}) {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgBegin), 1)
 	o.packMap(meta)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendCommit() {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgCommit), 0)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendRollback() {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgRollback), 0)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendRun(cypher string, params, meta map[string]interface{}) {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgRun), 3)
 	o.packer.String(cypher)
 	o.packMap(params)
 	o.packMap(meta)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendPullN(n int) {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgPullN), 1)
 	o.packer.MapHeader(1)
 	o.packer.String("n")
 	o.packer.Int(n)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendPullNQid(n int, qid int64) {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgPullN), 1)
 	o.packer.MapHeader(2)
 	o.packer.String("n")
 	o.packer.Int(n)
 	o.packer.String("qid")
 	o.packer.Int64(qid)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendDiscardNQid(n int, qid int64) {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgDiscardN), 1)
 	o.packer.MapHeader(2)
 	o.packer.String("n")
 	o.packer.Int(n)
 	o.packer.String("qid")
 	o.packer.Int64(qid)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendPullAll() {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgPullAll), 0)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendReset() {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgReset), 0)
-	o._end()
+	o.end()
 }
 
 func (o *outgoing) appendGoodbye() {
-	o._begin()
+	o.begin()
 	o.packer.StructHeader(byte(msgGoodbye), 0)
-	o._end()
+	o.end()
+}
+
+// For tests
+func (o *outgoing) appendX(tag byte, fields ...interface{}) {
+	o.begin()
+	o.packer.StructHeader(tag, len(fields))
+	for _, f := range fields {
+		o.packX(f)
+	}
+	o.end()
 }
 
 func (o *outgoing) send(wr io.Writer) {

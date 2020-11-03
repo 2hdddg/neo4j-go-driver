@@ -40,17 +40,18 @@ type bolt3server struct {
 	conn     net.Conn
 	hyd      packstream.Hydrate
 	unpacker *packstream.Unpacker
-	chunker  *chunker
-	packer   *packstream.Packer
+	out      *outgoing
 }
 
 func newBolt3Server(conn net.Conn) *bolt3server {
 	return &bolt3server{
 		unpacker: &packstream.Unpacker{},
 		conn:     conn,
-		chunker:  newChunker(),
-		hyd:      passthroughHydrator,
-		packer:   &packstream.Packer{},
+		out: &outgoing{
+			chunker: newChunker(),
+			packer:  &packstream.Packer2{},
+		},
+		hyd: passthroughHydrator,
 	}
 }
 
@@ -70,11 +71,10 @@ func (s *bolt3server) assertStructType(msg *packstream.Struct, t packstream.Stru
 }
 
 func (s *bolt3server) sendFailureMsg(code, msg string) {
-	f := map[string]interface{}{
+	s.send(msgFailure, map[string]interface{}{
 		"code":    code,
 		"message": msg,
-	}
-	s.send(msgFailure, f)
+	})
 }
 
 func (s *bolt3server) sendIgnoredMsg() {
@@ -158,14 +158,9 @@ func (s *bolt3server) closeConnection() {
 }
 
 func (s *bolt3server) send(tag packstream.StructTag, field ...interface{}) {
-	s.chunker.beginMessage()
-	var err error
-	s.chunker.buf, err = s.packer.PackStruct(s.chunker.buf, dehydrate, tag, field...)
-	if err != nil {
-		panic(err)
-	}
-	s.chunker.endMessage()
-	s.chunker.send(s.conn)
+	s.out.appendX(byte(tag), field...)
+	s.out.send(s.conn)
+
 }
 
 func (s *bolt3server) sendSuccess(m map[string]interface{}) {
@@ -213,9 +208,10 @@ func (s *bolt3server) serveRunTx(stream []packstream.Struct, commit bool, bookma
 	}
 	if commit {
 		s.waitForTxCommit()
-		s.send(msgSuccess, map[string]interface{}{
+		s.out.appendX(byte(msgSuccess), map[string]interface{}{
 			"bookmark": bookmark,
 		})
+		s.out.send(s.conn)
 	} else {
 		s.waitForTxRollback()
 		s.send(msgSuccess, map[string]interface{}{})
