@@ -176,6 +176,10 @@ func pack(p *Packer, x interface{}) {
 			p.String(s)
 			pack(p, y)
 		}
+	case map[string]string:
+		p.StringMap(v)
+	case map[string]int:
+		p.IntMap(v)
 	case *Struct:
 		p.StructHeader(byte(v.Tag), len(v.Fields))
 		for _, y := range v.Fields {
@@ -597,35 +601,38 @@ func TestPackStream(ot *testing.T) {
 			expectUnpacked: map[string]interface{}{"s": interface{}("str")},
 			expectPacked:   []byte{0xa1, 0x81, 0x73, 0x83, 0x73, 0x74, 0x72}},
 
-		// Map[string] of ints
+		{name: "map[string]string, empty", value: map[string]string{},
+			expectPacked: []byte{0xa0}},
 		/*
-				{name: "map[string]string, empty", value: map[string]string{},
-					expectPacked: []byte{0xa0}},
-				{name: "*map[string]string, empty", value: &(map[string]string{}),
-					expectPacked: []byte{0xa0}},
-				{name: "map[string]string, sample", value: map[string]string{"key": "value"},
-					expectPacked: []byte{
-						0xa1, 0x83, 0x6b, 0x65, 0x79, 0x85, 0x76, 0x61, 0x6c, 0x75, 0x65}},
-				{name: "map[string]int64, sample", value: map[string]int64{"l": posInt24To40 + 1},
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0xca, 0x00, 0x00, 0x80, 0x00}},
-				{name: "map[string]int, type", value: map[string]int{"l": 1},
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
-				{name: "map[string]int8 , type", value: map[string]int8{"l": 1},
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
-				{name: "map[string]uint8, type", value: map[string]uint8{"l": 1},
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
-				{name: "map[string]uint16, type", value: map[string]uint16{"l": 1},
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
-				{name: "map[string]int16, type", value: map[string]int16{"l": 1},
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
-				{name: "map[string]uint32, type", value: map[string]uint32{"l": 1},
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
-				{name: "map[string]int32, type", value: map[string]int32{"l": 1},
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
-				{name: "map[string]uint64, type", value: map[string]uint64{"l": 1},
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
-				{name: "custom map[string]int, type", value: customMapOfInts(map[string]int{"l": 1}),
-					expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
+			{name: "*map[string]string, empty", value: &(map[string]string{}),
+				expectPacked: []byte{0xa0}},
+		*/
+		{name: "map[string]string, sample", value: map[string]string{"key": "value"},
+			expectPacked: []byte{
+				0xa1, 0x83, 0x6b, 0x65, 0x79, 0x85, 0x76, 0x61, 0x6c, 0x75, 0x65}},
+		/*
+			{name: "map[string]int64, sample", value: map[string]int64{"l": posInt24To40 + 1},
+				expectPacked: []byte{0xa1, 0x81, 0x6c, 0xca, 0x00, 0x00, 0x80, 0x00}},
+		*/
+		{name: "map[string]int, type", value: map[string]int{"l": 1},
+			expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
+		/*
+			{name: "map[string]int8 , type", value: map[string]int8{"l": 1},
+				expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
+			{name: "map[string]uint8, type", value: map[string]uint8{"l": 1},
+				expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
+			{name: "map[string]uint16, type", value: map[string]uint16{"l": 1},
+				expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
+			{name: "map[string]int16, type", value: map[string]int16{"l": 1},
+				expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
+			{name: "map[string]uint32, type", value: map[string]uint32{"l": 1},
+				expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
+			{name: "map[string]int32, type", value: map[string]int32{"l": 1},
+				expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
+			{name: "map[string]uint64, type", value: map[string]uint64{"l": 1},
+				expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
+			{name: "custom map[string]int, type", value: customMapOfInts(map[string]int{"l": 1}),
+				expectPacked: []byte{0xa1, 0x81, 0x6c, 0x01}},
 
 			// Map[string] of floats
 			{name: "map[string]float64, sample", value: map[string]float64{"l": piFloat64},
@@ -658,46 +665,9 @@ func TestPackStream(ot *testing.T) {
 			expectPacked: []byte{
 				0xb2, 0x66, 0xb2, 0x67, 0x81, 0x31, 0x81, 0x32, 0xb2, 0x68, 0x81, 0x33, 0x81,
 				0x34}},
-
-		// Custom type using hook (for temporal, spatial types)
-		/*
-			{name: "custom type to struct", value: &customStruct{},
-				dehydrate: func(x interface{}) (*Struct, error) {
-					switch x.(type) {
-					case *customStruct:
-						return &Struct{Tag: 0x01, Fields: []interface{}{1}}, nil
-					}
-					return nil, errors.New(".")
-				},
-				expectPacked: []byte{0xb1, 0x01, 0x01}},
-		*/
 	}
 
 	for _, c := range cases {
-		// Packing
-		/*
-			ot.Run(fmt.Sprintf("Packing of %s", c.name), func(t *testing.T) {
-				buf := []byte{}
-				p := Packer{buf: buf, dehydrate: c.dehydrate}
-				p.pack(c.value)
-				if p.err != nil {
-					t.Fatalf("Unable to pack: %s", p.err)
-				}
-				buf = p.buf
-				if len(c.expectPacked) != len(buf) {
-					dumper.Write(buf)
-					t.Fatalf("Packed buffer differs in size. Got %+v expected %+v",
-						len(buf), len(c.expectPacked))
-				}
-				for i, x := range c.expectPacked {
-					if buf[i] != x {
-						dumper.Write(buf)
-						t.Fatalf("Packed first diff at %d. Got %+v expected %+v",
-							i, buf[i], c.expectPacked[i])
-					}
-				}
-			})
-		*/
 		ot.Run(fmt.Sprintf("Packing of %s", c.name), func(t *testing.T) {
 			buf := []byte{}
 			p := Packer{}
