@@ -36,17 +36,18 @@ type bolt4server struct {
 	conn     net.Conn
 	hyd      packstream.Hydrate
 	unpacker *packstream.Unpacker
-	chunker  *chunker
-	packer   *packstream.Packer
+	out      *outgoing
 }
 
 func newBolt4Server(conn net.Conn) *bolt4server {
 	return &bolt4server{
 		unpacker: &packstream.Unpacker{},
 		conn:     conn,
-		chunker:  newChunker(),
-		hyd:      passthroughHydrator,
-		packer:   &packstream.Packer{},
+		out: &outgoing{
+			chunker: newChunker(),
+			packer:  &packstream.Packer2{},
+		},
+		hyd: passthroughHydrator,
 	}
 }
 
@@ -192,14 +193,8 @@ func (s *bolt4server) closeConnection() {
 }
 
 func (s *bolt4server) send(tag packstream.StructTag, field ...interface{}) {
-	s.chunker.beginMessage()
-	var err error
-	s.chunker.buf, err = s.packer.PackStruct(s.chunker.buf, dehydrate, tag, field...)
-	if err != nil {
-		panic(err)
-	}
-	s.chunker.endMessage()
-	s.chunker.send(s.conn)
+	s.out.appendX(byte(tag), field...)
+	s.out.send(s.conn)
 }
 
 func (s *bolt4server) sendSuccess(m map[string]interface{}) {

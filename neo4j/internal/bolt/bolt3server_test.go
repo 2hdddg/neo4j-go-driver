@@ -160,7 +160,6 @@ func (s *bolt3server) closeConnection() {
 func (s *bolt3server) send(tag packstream.StructTag, field ...interface{}) {
 	s.out.appendX(byte(tag), field...)
 	s.out.send(s.conn)
-
 }
 
 func (s *bolt3server) sendSuccess(m map[string]interface{}) {
