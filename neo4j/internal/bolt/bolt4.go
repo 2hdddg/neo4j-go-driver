@@ -80,7 +80,7 @@ type bolt4 struct {
 	conn          net.Conn
 	serverName    string
 	out           *outgoing
-	hydrator      hydrator
+	in            *incoming
 	connId        string
 	logId         string
 	serverVersion string
@@ -90,19 +90,18 @@ type bolt4 struct {
 	birthDate     time.Time
 	log           log.Logger
 	databaseName  string
-	receiveBuffer []byte
 	err           error // Last fatal error
 }
 
 func NewBolt4(serverName string, conn net.Conn, log log.Logger) *bolt4 {
 	b := &bolt4{
-		state:         bolt4_unauthorized,
-		conn:          conn,
-		serverName:    serverName,
-		receiveBuffer: make([]byte, 4096),
-		birthDate:     time.Now(),
-		log:           log,
-		streams:       openstreams{},
+		state:      bolt4_unauthorized,
+		conn:       conn,
+		serverName: serverName,
+		birthDate:  time.Now(),
+		log:        log,
+		streams:    openstreams{},
+		in:         &incoming{buf: make([]byte, 4096)},
 	}
 	b.out = &outgoing{
 		chunker: newChunker(),
@@ -180,14 +179,7 @@ func (b *bolt4) receiveMsg() interface{} {
 		return nil
 	}
 
-	var err error
-	b.receiveBuffer, err = dechunkMessage(b.conn, b.receiveBuffer)
-	if err != nil {
-		b.setError(err, true)
-		return nil
-	}
-
-	msg, err := (&b.hydrator).hydrate(b.receiveBuffer)
+	msg, err := b.in.next(b.conn)
 	b.setError(err, true)
 	return msg
 }

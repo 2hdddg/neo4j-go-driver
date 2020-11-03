@@ -73,7 +73,7 @@ type bolt3 struct {
 	conn          net.Conn
 	serverName    string
 	out           *outgoing
-	hydrator      hydrator
+	in            *incoming
 	connId        string
 	logId         string
 	serverVersion string
@@ -82,18 +82,17 @@ type bolt3 struct {
 	bookmark      string       // Last bookmark
 	birthDate     time.Time
 	log           log.Logger
-	receiveBuffer []byte
 	err           error // Last fatal error
 }
 
 func NewBolt3(serverName string, conn net.Conn, log log.Logger) *bolt3 {
 	b := &bolt3{
-		state:         bolt3_unauthorized,
-		conn:          conn,
-		serverName:    serverName,
-		receiveBuffer: make([]byte, 4096),
-		birthDate:     time.Now(),
-		log:           log,
+		state:      bolt3_unauthorized,
+		conn:       conn,
+		serverName: serverName,
+		in:         &incoming{buf: make([]byte, 4096)},
+		birthDate:  time.Now(),
+		log:        log,
 	}
 	b.out = &outgoing{
 		chunker: newChunker(),
@@ -118,21 +117,13 @@ func (b *bolt3) ServerVersion() string {
 
 // Sets b.err and b.state on failure
 func (b *bolt3) receiveMsg() interface{} {
-	b.receiveBuffer, b.err = dechunkMessage(b.conn, b.receiveBuffer)
-	if b.err != nil {
+	msg, err := b.in.next(b.conn)
+	if err != nil {
+		b.err = err
 		b.log.Error(log.Bolt3, b.logId, b.err)
 		b.state = bolt3_dead
 		return nil
 	}
-
-	msg, err := (&b.hydrator).hydrate(b.receiveBuffer)
-	if err != nil {
-		b.log.Error(log.Bolt3, b.logId, err)
-		b.state = bolt3_dead
-		b.err = err
-		return nil
-	}
-
 	return msg
 }
 
