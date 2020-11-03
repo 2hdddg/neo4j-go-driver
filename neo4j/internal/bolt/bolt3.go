@@ -117,35 +117,6 @@ func (b *bolt3) ServerVersion() string {
 }
 
 // Sets b.err and b.state on failure
-/*
-func (b *bolt3) appendMsg(tag packstream.StructTag, field ...interface{}) {
-	b.chunker.beginMessage()
-	// Setup the message and let packstream write the packed bytes to the chunk
-	b.chunker.buf, b.err = b.packer.PackStruct(b.chunker.buf, dehydrate, tag, field...)
-	if b.err != nil {
-		// At this point we do not know the state of what has been written to the chunks.
-		// Either we should support rolling back whatever that has been written or just
-		// bail out this session.
-		b.log.Error(log.Bolt3, b.logId, b.err)
-		b.state = bolt3_dead
-		return
-	}
-	b.chunker.endMessage()
-}
-
-// Sets b.err and b.state on failure
-func (b *bolt3) sendMsg(tag packstream.StructTag, field ...interface{}) {
-	if b.appendMsg(tag, field...); b.err != nil {
-		return
-	}
-	if b.err = b.chunker.send(b.conn); b.err != nil {
-		b.log.Error(log.Bolt3, b.logId, b.err)
-		b.state = bolt3_dead
-	}
-}
-*/
-
-// Sets b.err and b.state on failure
 func (b *bolt3) receiveMsg() interface{} {
 	b.receiveBuffer, b.err = dechunkMessage(b.conn, b.receiveBuffer)
 	if b.err != nil {
