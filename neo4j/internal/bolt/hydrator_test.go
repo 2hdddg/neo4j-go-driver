@@ -28,7 +28,7 @@ import (
 	"time"
 )
 
-func TestHydrator2(ot *testing.T) {
+func TestHydrator(ot *testing.T) {
 	zone := "America/New_York"
 	loc, err := time.LoadLocation(zone)
 	if err != nil {
