@@ -436,7 +436,6 @@ func (h *hydrator) path(n uint32) interface{} {
 		}
 		nodes[i] = node
 	}
-	fmt.Println(nodes)
 	// Array of relnodes
 	h.unp.Next()
 	num = h.unp.Int()
@@ -450,7 +449,6 @@ func (h *hydrator) path(n uint32) interface{} {
 		}
 		rnodes[i] = rnode
 	}
-	fmt.Println(rnodes)
 	// Array of indexes
 	h.unp.Next()
 	num = h.unp.Int()
