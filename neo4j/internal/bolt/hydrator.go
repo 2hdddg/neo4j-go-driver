@@ -29,7 +29,6 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
 )
 
-var hydrationLenError = errors.New("Len assert fail")
 var hydrationInvalidState = errors.New("Hydration state error")
 
 type ignored struct{}
@@ -49,6 +48,17 @@ type success struct {
 	profile       *db.ProfiledPlan
 	notifications []db.Notification
 	num           uint32
+}
+
+func (s *success) String() string {
+	str := fmt.Sprintf("%#v", s)
+	if s.plan != nil {
+		str += fmt.Sprintf(" \nplan: %#v", s.plan)
+	}
+	if s.profile != nil {
+		str += fmt.Sprintf(" \nprofile: %#v", s.profile)
+	}
+	return str
 }
 
 func (s *success) summary() *db.Summary {
@@ -82,6 +92,7 @@ func (s *success) clear() {
 	s.tfirst = 0
 	s.tlast = 0
 	s.db = ""
+	s.qtype = db.StatementTypeUnknown
 }
 
 type hydrator struct {
@@ -223,14 +234,14 @@ func (h *hydrator) success(n uint32) *success {
 		case "stats":
 			succ.counters = h.successStats()
 		case "plan":
-			h.trash()
-			panic("plan not implemented")
+			m := h.amap()
+			succ.plan = parsePlan(m)
 		case "profile":
-			h.trash()
-			panic("profile not implemented")
+			m := h.amap()
+			succ.profile = parseProfile(m)
 		case "notifications":
-			h.trash()
-			panic("notifications not implemented")
+			l := h.array()
+			succ.notifications = parseNotifications(l)
 		default:
 			// Unknown key, waste it
 			h.trash()
@@ -254,6 +265,21 @@ func (h *hydrator) successStats() map[string]int {
 	}
 	return counts
 }
+
+/*
+func (h *hydrator) successPlanOperator() {
+}
+
+func (h *hydrator) successPlan() *db.Plan {
+	// Should be on a map
+	n := h.unp.Len()
+	if n == 0 {
+		return nil
+	}
+
+	plan := &db.Plan{}
+}
+*/
 
 func (h *hydrator) strings() []string {
 	n := h.unp.Len()
@@ -566,4 +592,101 @@ func (h *hydrator) duration(n uint32) interface{} {
 	h.unp.Next()
 	nan := h.unp.Int()
 	return dbtype.Duration{Months: mon, Days: day, Seconds: sec, Nanos: int(nan)}
+}
+
+func parseNotifications(notificationsx []interface{}) []db.Notification {
+	var notifications []db.Notification
+	if len(notificationsx) > 0 {
+		notifications = make([]db.Notification, 0, len(notificationsx))
+		for _, x := range notificationsx {
+			notificationx, ok := x.(map[string]interface{})
+			if ok {
+				notifications = append(notifications, parseNotification(notificationx))
+			}
+		}
+	}
+	return notifications
+}
+
+func parsePlanOpIdArgsChildren(planx map[string]interface{}) (string, []string, map[string]interface{}, []interface{}) {
+	operator, _ := planx["operatorType"].(string)
+	identifiersx, _ := planx["identifiers"].([]interface{})
+	arguments, _ := planx["args"].(map[string]interface{})
+
+	identifiers := make([]string, len(identifiersx))
+	for i, id := range identifiersx {
+		identifiers[i], _ = id.(string)
+	}
+
+	childrenx, _ := planx["children"].([]interface{})
+
+	return operator, identifiers, arguments, childrenx
+}
+
+func parsePlan(planx map[string]interface{}) *db.Plan {
+	op, ids, args, childrenx := parsePlanOpIdArgsChildren(planx)
+	plan := &db.Plan{
+		Operator:    op,
+		Arguments:   args,
+		Identifiers: ids,
+	}
+
+	plan.Children = make([]db.Plan, 0, len(childrenx))
+	for _, c := range childrenx {
+		childPlanx, _ := c.(map[string]interface{})
+		if len(childPlanx) > 0 {
+			childPlan := parsePlan(childPlanx)
+			if childPlan != nil {
+				plan.Children = append(plan.Children, *childPlan)
+			}
+		}
+	}
+
+	return plan
+}
+
+func parseProfile(profilex map[string]interface{}) *db.ProfiledPlan {
+	op, ids, args, childrenx := parsePlanOpIdArgsChildren(profilex)
+	plan := &db.ProfiledPlan{
+		Operator:    op,
+		Arguments:   args,
+		Identifiers: ids,
+	}
+
+	plan.DbHits, _ = profilex["dbHits"].(int64)
+	plan.Records, _ = profilex["rows"].(int64)
+
+	plan.Children = make([]db.ProfiledPlan, 0, len(childrenx))
+	for _, c := range childrenx {
+		childPlanx, _ := c.(map[string]interface{})
+		if len(childPlanx) > 0 {
+			childPlan := parseProfile(childPlanx)
+			if childPlan != nil {
+				plan.Children = append(plan.Children, *childPlan)
+			}
+		}
+	}
+
+	return plan
+}
+
+func parseNotification(m map[string]interface{}) db.Notification {
+	n := db.Notification{}
+	n.Code, _ = m["code"].(string)
+	n.Description = m["description"].(string)
+	n.Severity, _ = m["severity"].(string)
+	n.Title, _ = m["title"].(string)
+	posx, exists := m["position"].(map[string]interface{})
+	if exists {
+		pos := &db.InputPosition{}
+		i, _ := posx["column"].(int64)
+		pos.Column = int(i)
+		i, _ = posx["line"].(int64)
+		pos.Line = int(i)
+		i, _ = posx["offset"].(int64)
+		pos.Offset = int(i)
+		n.Position = pos
+	}
+
+	return n
 }

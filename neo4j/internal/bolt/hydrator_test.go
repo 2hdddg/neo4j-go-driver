@@ -20,12 +20,14 @@
 package bolt
 
 import (
-	"github.com/neo4j/neo4j-go-driver/v4/neo4j/db"
-	"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
-	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/neo4j/neo4j-go-driver/v4/neo4j/db"
+	"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
+	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
 )
 
 func TestHydrator(ot *testing.T) {
@@ -102,6 +104,24 @@ func TestHydrator(ot *testing.T) {
 			x: &success{fields: []string{"field1", "field2"}, tfirst: 10000, qid: -1, num: 3},
 		},
 		{
+			name: "Success run response with qid",
+			build: func() {
+				packer.StructHeader(byte(msgSuccess), 1)
+				packer.MapHeader(4)
+				packer.String("unknown") // Should be ignored
+				packer.Int64(666)
+				packer.String("fields")
+				packer.ArrayHeader(2)   // >> fields array
+				packer.String("field1") //
+				packer.String("field2") // << fields array
+				packer.String("t_first")
+				packer.Int64(10000)
+				packer.String("qid")
+				packer.Int64(777)
+			},
+			x: &success{fields: []string{"field1", "field2"}, tfirst: 10000, qid: int64(777), num: 4},
+		},
+		{
 			name: "Success discard/end of page response with more data",
 			build: func() {
 				packer.StructHeader(byte(msgSuccess), 1)
@@ -144,6 +164,145 @@ func TestHydrator(ot *testing.T) {
 				packer.String("s")
 			},
 			x: &success{tlast: 124, bookmark: "b", qtype: db.StatementTypeWrite, db: "s", qid: -1, num: 4},
+		},
+		{
+			name: "Success summary with plan",
+			build: func() {
+				packer.StructHeader(byte(msgSuccess), 1)
+				packer.MapHeader(4)
+				packer.String("has_more")
+				packer.Bool(false)
+				packer.String("bookmark")
+				packer.String("bm")
+				packer.String("db")
+				packer.String("sys")
+				packer.String("plan") // Plan map
+				packer.MapHeader(4)
+				packer.String("operatorType")
+				packer.String("opType")
+				packer.String("identifiers") // array
+				packer.ArrayHeader(2)
+				packer.String("id1")
+				packer.String("id2")
+				packer.String("args") // map
+				packer.MapHeader(1)
+				packer.String("arg1")
+				packer.Int(1001)
+				packer.String("children") // array of maps
+				packer.ArrayHeader(1)
+				packer.MapHeader(2) // Another plan map
+				packer.String("operatorType")
+				packer.String("cop")
+				packer.String("identifiers") // array
+				packer.ArrayHeader(1)
+				packer.String("cid")
+			},
+			x: &success{bookmark: "bm", db: "sys", qid: -1, num: 4, plan: &db.Plan{
+				Operator:    "opType",
+				Arguments:   map[string]interface{}{"arg1": int64(1001)},
+				Identifiers: []string{"id1", "id2"},
+				Children: []db.Plan{
+					{Operator: "cop", Identifiers: []string{"cid"}, Children: []db.Plan{}},
+				},
+			}},
+		},
+		{
+			name: "Success summary with profile",
+			build: func() {
+				packer.StructHeader(byte(msgSuccess), 1)
+				packer.MapHeader(4)
+				packer.String("has_more")
+				packer.Bool(false)
+				packer.String("bookmark")
+				packer.String("bm")
+				packer.String("db")
+				packer.String("sys")
+				packer.String("profile") // Profile map
+				packer.MapHeader(6)
+				packer.String("operatorType")
+				packer.String("opType")
+				packer.String("dbHits")
+				packer.Int(7)
+				packer.String("rows")
+				packer.Int(4)
+				packer.String("identifiers") // array
+				packer.ArrayHeader(2)
+				packer.String("id1")
+				packer.String("id2")
+				packer.String("args") // map
+				packer.MapHeader(1)
+				packer.String("arg1")
+				packer.Int(1001)
+				packer.String("children") // array of maps
+				packer.ArrayHeader(1)
+				packer.MapHeader(4) // Another profile map
+				packer.String("operatorType")
+				packer.String("cop")
+				packer.String("identifiers") // array
+				packer.ArrayHeader(1)        //
+				packer.String("cid")         // << array
+				packer.String("dbHits")
+				packer.Int(1)
+				packer.String("rows")
+				packer.Int(2)
+			},
+			x: &success{bookmark: "bm", db: "sys", qid: -1, num: 4,
+				profile: &db.ProfiledPlan{
+					Operator:    "opType",
+					Arguments:   map[string]interface{}{"arg1": int64(1001)},
+					Identifiers: []string{"id1", "id2"},
+					Children: []db.ProfiledPlan{
+						{Operator: "cop", Identifiers: []string{"cid"}, Children: []db.ProfiledPlan{}, DbHits: int64(1), Records: int64(2)},
+					},
+					DbHits:  int64(7),
+					Records: int64(4),
+				}},
+		},
+		{
+			name: "Success summary with notifications",
+			build: func() {
+				packer.StructHeader(byte(msgSuccess), 1)
+				packer.MapHeader(4)
+				packer.String("has_more")
+				packer.Bool(false)
+				packer.String("bookmark")
+				packer.String("bm")
+				packer.String("db")
+				packer.String("sys")
+				packer.String("notifications") // Array
+				packer.ArrayHeader(2)
+				packer.MapHeader(5) // Notification map
+				packer.String("code")
+				packer.String("c1")
+				packer.String("title")
+				packer.String("t1")
+				packer.String("description")
+				packer.String("d1")
+				packer.String("severity")
+				packer.String("s1")
+				packer.String("position")
+				packer.MapHeader(3)
+				packer.String("offset")
+				packer.Int(1)
+				packer.String("line")
+				packer.Int(2)
+				packer.String("column")
+				packer.Int(3)
+				packer.MapHeader(4) // Notification map
+				packer.String("code")
+				packer.String("c2")
+				packer.String("title")
+				packer.String("t2")
+				packer.String("description")
+				packer.String("d2")
+				packer.String("severity")
+				packer.String("s2")
+			},
+			x: &success{bookmark: "bm", db: "sys", qid: -1, num: 4,
+				notifications: []db.Notification{
+					{Code: "c1", Title: "t1", Description: "d1", Severity: "s1", Position: &db.InputPosition{Offset: 1, Line: 2, Column: 3}},
+					{Code: "c2", Title: "t2", Description: "d2", Severity: "s2"},
+				}},
 		},
 		{
 			name: "Success pull response read no db",
@@ -383,6 +542,7 @@ func TestHydrator(ot *testing.T) {
 				panic(err)
 			}
 			if !reflect.DeepEqual(x, c.x) {
+				fmt.Printf("%+v", hydrator.cachedSuccess.plan)
 				t.Fatalf("Expected:\n%+v\n != Actual: \n%+v\n", c.x, x)
 			}
 		})
