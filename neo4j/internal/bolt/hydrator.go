@@ -134,7 +134,7 @@ func (h *hydrator) hydrate(buf []byte) (x interface{}, err error) {
 	}
 
 	n := h.unp.Len()
-	t := packstream.StructTag(h.unp.StructTag())
+	t := h.unp.StructTag()
 	switch t {
 	case msgSuccess:
 		x = h.success(n)

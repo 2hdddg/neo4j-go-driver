@@ -21,7 +21,6 @@ package bolt
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -29,22 +28,6 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
 )
-
-type testStruct struct {
-	tag    byte
-	fields []interface{}
-}
-
-func (t *testStruct) String() string {
-	s := fmt.Sprintf("Struct{tag: %d, fields: [", t.tag)
-	for i, x := range t.fields {
-		if i > 0 {
-			s += ", "
-		}
-		s += fmt.Sprintf("%+v", x)
-	}
-	return s + "]}"
-}
 
 // Utility to dehydrate/unpack
 func unpack(u *packstream.Unpacker) interface{} {

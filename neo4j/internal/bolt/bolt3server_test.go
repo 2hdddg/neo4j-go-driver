@@ -28,47 +28,6 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
 )
 
-func serverHydrator(unpacker *packstream.Unpacker) interface{} {
-	switch unpacker.Curr {
-	case packstream.PackedInt:
-		return unpacker.Int()
-	case packstream.PackedFloat:
-		return unpacker.Float()
-	case packstream.PackedStr:
-		return unpacker.String()
-	case packstream.PackedStruct:
-		panic("No support for unpacking struct in server stub")
-	case packstream.PackedByteArray:
-		return unpacker.ByteArray()
-	case packstream.PackedArray:
-		n := unpacker.Len()
-		a := make([]interface{}, n)
-		for i := range a {
-			unpacker.Next()
-			a[i] = serverHydrator(unpacker)
-		}
-		return a
-	case packstream.PackedMap:
-		n := unpacker.Len()
-		m := make(map[string]interface{}, n)
-		for ; n > 0; n-- {
-			unpacker.Next()
-			key := unpacker.String()
-			unpacker.Next()
-			m[key] = serverHydrator(unpacker)
-		}
-		return m
-	case packstream.PackedNil:
-		return nil
-	case packstream.PackedTrue:
-		return true
-	case packstream.PackedFalse:
-		return false
-	default:
-		panic("Unsupported type to unpack")
-	}
-}
-
 // Fake of bolt3 server.
 // Utility to test bolt3 protocol implemntation.
 // Use panic upon errors, simplifies output when server is running within a go thread
@@ -99,9 +58,9 @@ func (s *bolt3server) waitForHandshake() []byte {
 	return handshake
 }
 
-func (s *bolt3server) assertStructType(msg *packstream.Struct, t packstream.StructTag) {
-	if msg.Tag != t {
-		panic(fmt.Sprintf("Got wrong type of message expected %d but got %d (%+v)", t, msg.Tag, msg))
+func (s *bolt3server) assertStructType(msg *testStruct, t byte) {
+	if msg.tag != t {
+		panic(fmt.Sprintf("Got wrong type of message expected %d but got %d (%+v)", t, msg.tag, msg))
 	}
 }
 
@@ -119,7 +78,7 @@ func (s *bolt3server) sendIgnoredMsg() {
 func (s *bolt3server) waitForHello() {
 	msg := s.receiveMsg()
 	s.assertStructType(msg, msgHello)
-	m := msg.Fields[0].(map[string]interface{})
+	m := msg.fields[0].(map[string]interface{})
 	// Hello should contain some musts
 	_, exists := m["scheme"]
 	if !exists {
@@ -131,7 +90,7 @@ func (s *bolt3server) waitForHello() {
 	}
 }
 
-func (s *bolt3server) receiveMsg() *packstream.Struct {
+func (s *bolt3server) receiveMsg() *testStruct {
 	buf, err := dechunkMessage(s.conn, []byte{})
 	if err != nil {
 		panic(err)
@@ -147,7 +106,7 @@ func (s *bolt3server) receiveMsg() *packstream.Struct {
 		s.unpacker.Next()
 		fields[i] = serverHydrator(s.unpacker)
 	}
-	return &packstream.Struct{Tag: packstream.StructTag(t), Fields: fields}
+	return &testStruct{tag: t, fields: fields}
 }
 
 func (s *bolt3server) waitForRun() {
@@ -199,7 +158,7 @@ func (s *bolt3server) closeConnection() {
 	s.conn.Close()
 }
 
-func (s *bolt3server) send(tag packstream.StructTag, field ...interface{}) {
+func (s *bolt3server) send(tag byte, field ...interface{}) {
 	s.out.appendX(byte(tag), field...)
 	s.out.send(s.conn)
 }
@@ -231,21 +190,21 @@ func (s *bolt3server) accept(ver byte) {
 }
 
 // Utility to wait and serve a auto commit query
-func (s *bolt3server) serveRun(stream []packstream.Struct) {
+func (s *bolt3server) serveRun(stream []testStruct) {
 	s.waitForRun()
 	s.waitForPullAll()
 	for _, x := range stream {
-		s.send(x.Tag, x.Fields...)
+		s.send(x.tag, x.fields...)
 	}
 }
 
-func (s *bolt3server) serveRunTx(stream []packstream.Struct, commit bool, bookmark string) {
+func (s *bolt3server) serveRunTx(stream []testStruct, commit bool, bookmark string) {
 	s.waitForTxBegin()
 	s.send(msgSuccess, map[string]interface{}{})
 	s.waitForRun()
 	s.waitForPullAll()
 	for _, x := range stream {
-		s.send(x.Tag, x.Fields...)
+		s.send(x.tag, x.fields...)
 	}
 	if commit {
 		s.waitForTxCommit()

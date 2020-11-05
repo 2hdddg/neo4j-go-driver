@@ -29,7 +29,12 @@ import (
 	"testing"
 )
 
-type customStruct struct{}
+//type customStruct struct{}
+
+type testStruct struct {
+	tag    byte
+	fields []interface{}
+}
 
 /*
 type testHydratorMock struct {
@@ -76,13 +81,13 @@ func unpack(u *Unpacker) interface{} {
 	case PackedStruct:
 		t := u.StructTag()
 		l := u.Len()
-		s := Struct{Tag: StructTag(t)}
+		s := testStruct{tag: t}
 		if l == 0 {
 			return &s
 		}
-		s.Fields = make([]interface{}, l)
-		for i := range s.Fields {
-			s.Fields[i] = unpack(u)
+		s.fields = make([]interface{}, l)
+		for i := range s.fields {
+			s.fields[i] = unpack(u)
 		}
 		return &s
 	default:
@@ -182,9 +187,9 @@ func pack(p *Packer, x interface{}) {
 		p.StringMap(v)
 	case map[string]int:
 		p.IntMap(v)
-	case *Struct:
-		p.StructHeader(byte(v.Tag), len(v.Fields))
-		for _, y := range v.Fields {
+	case *testStruct:
+		p.StructHeader(byte(v.tag), len(v.fields))
+		for _, y := range v.fields {
 			pack(p, y)
 		}
 	default:
@@ -206,7 +211,7 @@ func (m *testHydratorMock) hydrate(tag StructTag, fields []interface{}) (interfa
 		copy(copiedFields, fields)
 		fields = copiedFields
 	}
-	return &Struct{Tag: tag, Fields: fields}, nil
+	return &testStruct{Tag: tag, Fields: fields}, nil
 }
 
 type testHydrationError struct{}
@@ -333,10 +338,10 @@ func TestPackStream(ot *testing.T) {
 		customMapOfInts   map[string]int
 	)
 
-	emptyStruct := &Struct{Tag: 0x66}
-	maxStruct := &Struct{Tag: 0x67, Fields: []interface{}{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}}
-	structOfStruct := &Struct{Tag: 0x66,
-		Fields: []interface{}{&Struct{Tag: 0x67, Fields: []interface{}{"1", "2"}}, &Struct{Tag: 0x68, Fields: []interface{}{"3", "4"}}}}
+	emptyStruct := &testStruct{tag: 0x66}
+	maxStruct := &testStruct{tag: 0x67, fields: []interface{}{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}}
+	structOfStruct := &testStruct{tag: 0x66,
+		fields: []interface{}{&testStruct{tag: 0x67, fields: []interface{}{"1", "2"}}, &testStruct{tag: 0x68, fields: []interface{}{"3", "4"}}}}
 
 	cases := []struct {
 		name           string
@@ -655,8 +660,8 @@ func TestPackStream(ot *testing.T) {
 		{name: "struct, empty", value: emptyStruct, testUnpacked: true,
 			expectUnpacked: emptyStruct,
 			expectPacked:   []byte{0xb0, 0x66}},
-		{name: "struct, one", value: &Struct{Tag: 0x01, Fields: []interface{}{1}}, testUnpacked: false,
-			expectUnpacked: &Struct{Tag: 0x01, Fields: []interface{}{1}},
+		{name: "struct, one", value: &testStruct{tag: 0x01, fields: []interface{}{1}}, testUnpacked: false,
+			expectUnpacked: &testStruct{tag: 0x01, fields: []interface{}{1}},
 			expectPacked:   []byte{0xb1, 0x01, 0x01}},
 		{name: "struct, max size", value: maxStruct, testUnpacked: true,
 			expectUnpacked: maxStruct,
@@ -826,7 +831,7 @@ func TestPackStream(ot *testing.T) {
 		{name: "uin64 overflow", expectedErr: &OverflowError{},
 			value: (uint64(math.MaxInt64) + 1)},
 		{name: "too big struct", expectedErr: &OverflowError{},
-			value: &Struct{Tag: 0x67, Fields: []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}}},
+			value: &testStruct{tag: 0x67, fields: []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}}},
 		/*
 			{name: "map something else but string as key", expectedErr: &UnsupportedTypeError{},
 				value: map[int]string{1: "y"}},
