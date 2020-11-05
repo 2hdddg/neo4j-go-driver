@@ -693,33 +693,4 @@ func TestPackStream(ot *testing.T) {
 			}
 		})
 	}
-
-	// Unpacker error cases
-	/*
-		unpackerErrorCases := []struct {
-			name        string
-			buf         []byte
-			expectedErr interface{}
-		}{
-			{name: "read error", expectedErr: &IoError{}},
-		}
-		for _, c := range unpackerErrorCases {
-			ot.Run(fmt.Sprintf("Unpacking error of %s", c.name), func(t *testing.T) {
-				if c.hf == nil {
-					c.hf = &testHydratorMock{}
-				}
-				un := &Unpacker{buf: c.buf, offset: 0, length: uint32(len(c.buf))}
-				x, err := un.unpack(c.hf.hydrate)
-				if err == nil {
-					t.Fatal("Should have gotten an error!")
-				}
-				if x != nil {
-					t.Errorf("Unpack should not return value upon error: %+v", x)
-				}
-				if reflect.TypeOf(err) != reflect.TypeOf(c.expectedErr) {
-					t.Errorf("Wrong type of error, expected %T but was %T:%s", c.expectedErr, err, err)
-				}
-			})
-		}
-	*/
 }

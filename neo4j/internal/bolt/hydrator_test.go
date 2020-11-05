@@ -319,7 +319,7 @@ func TestHydrator(ot *testing.T) {
 				packer.Bool(false)
 			},
 			x: &success{tlast: 7, bookmark: "b1", qtype: db.StatementTypeRead, qid: -1, num: 4},
-		}, // TODO: Successes: , summary with stats...,
+		},
 		{
 			name: "Record of ints",
 			build: func() {
