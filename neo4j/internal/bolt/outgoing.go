@@ -19,11 +19,11 @@
 package bolt
 
 import (
-	"fmt"
 	"io"
 	"reflect"
 	"time"
 
+	"github.com/neo4j/neo4j-go-driver/v4/neo4j/db"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
 )
@@ -234,7 +234,7 @@ func (o *outgoing) packStruct(x interface{}) {
 		o.packer.Int64(v.Seconds)
 		o.packer.Int(v.Nanos)
 	default:
-		o.onErr(&UnsupportedTypeError{t: reflect.TypeOf(x)})
+		o.onErr(&db.UnsupportedTypeError{Type: reflect.TypeOf(x)})
 	}
 }
 
@@ -303,7 +303,7 @@ func (o *outgoing) packX(x interface{}) {
 		default:
 			t := reflect.TypeOf(x)
 			if t.Key().Kind() != reflect.String {
-				o.onErr(&UnsupportedTypeError{t: reflect.TypeOf(x)})
+				o.onErr(&db.UnsupportedTypeError{Type: reflect.TypeOf(x)})
 				return
 			}
 			o.packer.MapHeader(v.Len())
@@ -314,14 +314,6 @@ func (o *outgoing) packX(x interface{}) {
 			}
 		}
 	default:
-		o.onErr(&UnsupportedTypeError{t: reflect.TypeOf(x)})
+		o.onErr(&db.UnsupportedTypeError{Type: reflect.TypeOf(x)})
 	}
-}
-
-type UnsupportedTypeError struct {
-	t reflect.Type
-}
-
-func (e *UnsupportedTypeError) Error() string {
-	return fmt.Sprintf("Packing of type '%s' is not supported", e.t.String())
 }
