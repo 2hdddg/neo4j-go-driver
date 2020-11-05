@@ -265,6 +265,15 @@ func TestOutgoing(ot *testing.T) {
 
 	offsetZone := time.FixedZone("Offset", 100)
 
+	type (
+		customBool        bool
+		customFloat       float64
+		customInt         int64
+		customString      string
+		customByteSlice   []byte
+		customStringSlice []string
+		customMapOfInts   map[string]int
+	)
 	// Test packing of maps in more detail, essentially tests allowed parameters to Run command
 	// tests for top level appending and sending outgoing messages
 	paramCases := []struct {
@@ -275,14 +284,16 @@ func TestOutgoing(ot *testing.T) {
 		{
 			name: "map of maps",
 			inp: map[string]interface{}{
-				"m1": map[string]interface{}{"k1": "v1"},
-				"m2": map[string]interface{}{"k2": "v2"},
-				"m3": map[string]interface{}{"k3": "v3"},
+				"map":    map[string]interface{}{"k1": "v1"},
+				"int":    map[string]int{"k2": 1},
+				"[]int":  map[string][]int{"k3": {1, 2, 3}},
+				"[]bool": map[string]bool{"t": true, "f": false},
 			},
 			expect: map[string]interface{}{
-				"m1": map[string]interface{}{"k1": "v1"},
-				"m2": map[string]interface{}{"k2": "v2"},
-				"m3": map[string]interface{}{"k3": "v3"},
+				"map":    map[string]interface{}{"k1": "v1"},
+				"int":    map[string]interface{}{"k2": int64(1)},
+				"[]int":  map[string]interface{}{"k3": []interface{}{int64(1), int64(2), int64(3)}},
+				"[]bool": map[string]interface{}{"t": true, "f": false},
 			},
 		},
 		{
@@ -290,10 +301,12 @@ func TestOutgoing(ot *testing.T) {
 			inp: map[string]interface{}{
 				"p1": dbtype.Point2D{SpatialRefId: 1, X: 2, Y: 3},
 				"p2": dbtype.Point3D{SpatialRefId: 4, X: 5, Y: 6, Z: 7},
+				"ps": []dbtype.Point3D{{SpatialRefId: 4, X: 5, Y: 6, Z: 7}},
 			},
 			expect: map[string]interface{}{
 				"p1": &testStruct{tag: 'X', fields: []interface{}{int64(1), float64(2), float64(3)}},
 				"p2": &testStruct{tag: 'Y', fields: []interface{}{int64(4), float64(5), float64(6), float64(7)}},
+				"ps": []interface{}{&testStruct{tag: 'Y', fields: []interface{}{int64(4), float64(5), float64(6), float64(7)}}},
 			},
 		},
 		{
@@ -328,6 +341,39 @@ func TestOutgoing(ot *testing.T) {
 				"Duration":         &testStruct{tag: 'E', fields: []interface{}{int64(1), int64(2), int64(3), int64(4)}},
 			},
 		},
+		{
+			name: "map of custom native types",
+			inp: map[string]interface{}{
+				"custom bool":         customBool(true),
+				"custom float":        customFloat(3.14),
+				"custom int":          customInt(12345),
+				"custom string":       customString("Hello"),
+				"custom byte slice":   customByteSlice([]byte{1, 2, 3}),
+				"custom string slice": customStringSlice([]string{"hello", "again"}),
+				"custom map of ints":  customMapOfInts(map[string]int{"l": 1}),
+			},
+			expect: map[string]interface{}{
+				"custom bool":   true,
+				"custom float":  3.14,
+				"custom int":    int64(12345),
+				"custom string": "Hello",
+				// Custom will cause []byte to come back as []interface{}, could be handled but maybe not worth it
+				"custom byte slice":   []interface{}{int64(1), int64(2), int64(3)},
+				"custom string slice": []interface{}{"hello", "again"},
+				"custom map of ints":  map[string]interface{}{"l": int64(1)},
+			},
+		},
+		{
+			name: "map of pointer types",
+			inp: map[string]interface{}{
+				"*[]int":             &([]int{3}),
+				"*map[string]string": &(map[string]string{"x": "y"}),
+			},
+			expect: map[string]interface{}{
+				"*[]int":             []interface{}{int64(3)},
+				"*map[string]string": map[string]interface{}{"x": "y"},
+			},
+		},
 	}
 
 	for _, c := range paramCases {
@@ -338,7 +384,7 @@ func TestOutgoing(ot *testing.T) {
 				out.end()
 			})
 			if !reflect.DeepEqual(x, c.expect) {
-				t.Errorf("Unpacked differs, expected\n %+v but was\n %+v", c.expect, x)
+				t.Errorf("Unpacked differs, expected\n %#v but was\n %#v", c.expect, x)
 			}
 		})
 	}

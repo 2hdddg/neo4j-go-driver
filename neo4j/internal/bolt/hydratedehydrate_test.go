@@ -20,8 +20,6 @@
 package bolt
 
 import (
-	//	"errors"
-	//	"reflect"
 	"bytes"
 	"testing"
 	"time"
