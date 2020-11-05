@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/neo4j/neo4j-go-driver/v4/neo4j/db"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/dbtype"
 	"github.com/neo4j/neo4j-go-driver/v4/neo4j/internal/packstream"
 )
@@ -385,6 +386,53 @@ func TestOutgoing(ot *testing.T) {
 			})
 			if !reflect.DeepEqual(x, c.expect) {
 				t.Errorf("Unpacked differs, expected\n %#v but was\n %#v", c.expect, x)
+			}
+		})
+	}
+
+	type aStruct struct{}
+
+	// Test packing of stuff that is expected to give an error
+	paramErrorCases := []struct {
+		name string
+		inp  map[string]interface{}
+		err  error
+	}{
+		{
+			name: "map with non string key",
+			inp: map[string]interface{}{
+				"m": map[int]string{1: "y"},
+			},
+			err: &db.UnsupportedTypeError{},
+		},
+		{
+			name: "a random struct",
+			inp: map[string]interface{}{
+				"m": aStruct{},
+			},
+			err: &db.UnsupportedTypeError{},
+		},
+		{
+			name: "a random *struct",
+			inp: map[string]interface{}{
+				"m": &aStruct{},
+			},
+			err: &db.UnsupportedTypeError{},
+		},
+	}
+	for _, c := range paramErrorCases {
+		var err error
+		out := &outgoing{
+			chunker: newChunker(),
+			packer:  &packstream.Packer{},
+			onErr:   func(e error) { err = e },
+		}
+		ot.Run(c.name, func(t *testing.T) {
+			out.begin()
+			out.packMap(c.inp)
+			out.end()
+			if reflect.TypeOf(err) != reflect.TypeOf(c.err) {
+				t.Error(err)
 			}
 		})
 	}

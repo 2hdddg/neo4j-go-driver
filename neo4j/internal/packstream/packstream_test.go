@@ -581,7 +581,6 @@ func TestPackStream(ot *testing.T) {
 			if !reflect.DeepEqual(x, c.expectUnpacked) {
 				t.Errorf("Unpacked differs, expected %+v (%T) but was %+v (%T)", c.expectUnpacked, c.expectUnpacked, x, x)
 			}
-
 		})
 	}
 
@@ -677,10 +676,6 @@ func TestPackStream(ot *testing.T) {
 			value: (uint64(math.MaxInt64) + 1)},
 		{name: "too big struct", expectedErr: &OverflowError{},
 			value: &testStruct{tag: 0x67, fields: []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}}},
-		/*
-			{name: "map something else but string as key", expectedErr: &UnsupportedTypeError{},
-				value: map[int]string{1: "y"}},
-		*/
 	}
 	for _, c := range packerErrorCases {
 		ot.Run(fmt.Sprintf("Packing error of %s", c.name), func(t *testing.T) {
